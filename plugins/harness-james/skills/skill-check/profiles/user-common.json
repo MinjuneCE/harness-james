@@ -1,0 +1,80 @@
+{
+  "id": "user-common",
+  "description": "사용자 공통 금지 행위. 어느 경로의 스킬에나 적용해요.",
+  "appliesTo": [
+    "**"
+  ],
+  "forbidden": [
+    {
+      "id": "auto-push-merge-pr",
+      "desc": "사용자 승인 없는 자동 push, merge, PR 생성",
+      "hints": [
+        "git push",
+        "gh pr create",
+        "gh pr merge",
+        "/pulls/",
+        "/merge",
+        "--force",
+        "git -C",
+        "update-ref",
+        "refs/heads/"
+      ]
+    },
+    {
+      "id": "real-order-payment-form",
+      "desc": "실주문, 결제, 폼 제출(스토어프런트 체크아웃)",
+      "hints": [
+        "/checkout",
+        "/checkouts/",
+        "/cart/add",
+        "POST /cart",
+        "checkout",
+        "payment",
+        "submit",
+        "form.submit",
+        "click(",
+        "/contact",
+        "/account"
+      ]
+    },
+    {
+      "id": "harness-into-team-repo",
+      "desc": "하네스 파일(.claude 설정·훅, CLAUDE.md, specs)을 여러 사람이 같이 쓰는 팀 레포에 쓰기",
+      "hints": [
+        ".claude/",
+        "CLAUDE.md",
+        "settings.json",
+        "specs/",
+        "writeFile",
+        "git add",
+        "git commit"
+      ]
+    },
+    {
+      "id": "observer-hook-blocks-model",
+      "desc": "관찰용 훅이 모델 작업 경로에서 자기 일을 기다리게 하기(관찰은 보기 전용, 훅 안에서 오래 걸리는 일을 await하지 않기)",
+      "hints": [
+        "hooks",
+        "PreToolUse",
+        "PostToolUse",
+        "UserPromptSubmit",
+        "Stop",
+        "await",
+        "execSync",
+        "spawnSync",
+        "timeout"
+      ]
+    }
+  ],
+  "knownGuards": [
+    {
+      "id": "pane-lead-sub-guard",
+      "skill": "pane-lead",
+      "file": "skills/pane-lead/hooks/sub-guard.mjs (harness-james 플러그인 안)",
+      "covers": [
+        "auto-push-merge-pr"
+      ],
+      "desc": "서브 pane의 PreToolUse(Bash) 훅. git push, gh pr create/merge, gh api …/merge를 막고 메인 pane에 넘기게 해요."
+    }
+  ]
+}

@@ -1,0 +1,217 @@
+{
+  "version": "0.0.1",
+  "rubric_version": "0.1.2",
+  "profile": {
+    "key": "sample",
+    "name": "합성 시험 묶음",
+    "description": "범용 합성 fixture",
+    "owner": "test"
+  },
+  "level": "standard",
+  "design": {
+    "traits": [
+      "multi-doc",
+      "state-machine",
+      "external-integration",
+      "persistent-data",
+      "trust-boundary"
+    ]
+  },
+  "bundle": {
+    "roots": [
+      "docs/design/sample/"
+    ],
+    "documents": [
+      {
+        "path": "docs/design/sample/README.md",
+        "role": "overview",
+        "canonical_for": [
+          "결정 목록"
+        ]
+      },
+      {
+        "path": "docs/design/sample/spec.md",
+        "role": "spec",
+        "canonical_for": [
+          "요구"
+        ]
+      },
+      {
+        "path": "docs/design/sample/plan.md",
+        "role": "plan",
+        "canonical_for": [
+          "설정 값"
+        ]
+      },
+      {
+        "path": "docs/design/sample/data-model.md",
+        "role": "data-model",
+        "canonical_for": [
+          "상태 전이"
+        ]
+      },
+      {
+        "path": "docs/design/sample/tasks.md",
+        "role": "tasks"
+      },
+      {
+        "path": "docs/design/sample/notes/rules.md",
+        "role": "requirement"
+      },
+      {
+        "path": "docs/design/sample/input.md",
+        "role": "review-input"
+      }
+    ],
+    "exclude": [
+      "**/*.pdf"
+    ]
+  },
+  "requirement_sources": [
+    {
+      "path": "docs/design/sample/notes/rules.md",
+      "section": "규칙 요약",
+      "kind": "user-decision",
+      "date": "2026-01-01"
+    },
+    {
+      "path": "docs/design/sample/notes/rules.md",
+      "section": [
+        "규칙 1. 대기",
+        "규칙 2. 상한"
+      ],
+      "kind": "user-decision"
+    },
+    {
+      "path": "docs/design/sample/README.md",
+      "section": "Sample 설계 (v0.2, 2026-01-02)",
+      "lines": "3-3",
+      "kind": "user-decision",
+      "note": "머리말 인용 블록"
+    },
+    {
+      "path": "docs/design/sample/spec.md",
+      "section": "없는 절",
+      "kind": "user-decision"
+    }
+  ],
+  "external_sources": [
+    {
+      "system": "Vendor",
+      "aliases": [
+        "Vendor",
+        "VendorAPI"
+      ],
+      "primary": [
+        {
+          "kind": "official-docs",
+          "where": "https://vendor.example/docs",
+          "verified": false
+        }
+      ]
+    }
+  ],
+  "id_patterns": {
+    "requirement": "REQ-\\d{3}",
+    "user-story": "US\\d{1,2}",
+    "decision": [
+      "DEC\\d{1,2}",
+      "규칙 \\d"
+    ],
+    "task": "TK\\d{2}",
+    "scenario": "SC-[A-B]-\\d{2}",
+    "rule-summary-ref": {
+      "pattern": "요약 \\d",
+      "ref_only": true,
+      "defined_in": {
+        "path": "docs/design/sample/notes/rules.md",
+        "lines": "3-7",
+        "form": "numbered-list"
+      }
+    }
+  },
+  "glossary": {
+    "terms": [
+      {
+        "term": "WAITING",
+        "retired": [
+          "OLD_WAIT"
+        ],
+        "forbidden": [
+          "PENDING_WAIT"
+        ]
+      }
+    ],
+    "retired_mechanisms": [
+      "legacyFlush"
+    ]
+  },
+  "baseline": [
+    {
+      "target": "service",
+      "ref": "main",
+      "commit": "abc1234",
+      "as_of": "2026-01-01"
+    }
+  ],
+  "markers": {
+    "unverified": [
+      "미확인"
+    ],
+    "inferred": [
+      "추정"
+    ],
+    "statement": [
+      "사용자 진술"
+    ],
+    "placeholder": [
+      "TBD",
+      "미정"
+    ],
+    "history_context": [
+      "삭제",
+      "폐기",
+      "v0.1",
+      "합침"
+    ]
+  },
+  "limits": {
+    "total": 50,
+    "per_criterion": 5,
+    "low_info": 10,
+    "refute": 3
+  },
+  "script_hints": {
+    "number_units": [
+      "분",
+      "시간",
+      "초",
+      "PT\\d+[HMS]"
+    ],
+    "state_name_pattern": "\\b[A-Z][A-Z_]{2,}\\b",
+    "vague_words": [
+      "즉시",
+      "적절히"
+    ],
+    "commit_pattern": "\\b[0-9a-f]{7,40}\\b"
+  },
+  "parameters": {
+    "vendor_max_wait": {
+      "value": 10,
+      "unit": "분",
+      "source": "가정",
+      "compare_keys": [
+        "retry.max-wait"
+      ],
+      "relation": "gte"
+    },
+    "no_rel": {
+      "value": 1,
+      "unit": "분",
+      "source": "가정",
+      "compare_keys": [
+        "poll.interval"
+      ]
+    }
+  }
+}

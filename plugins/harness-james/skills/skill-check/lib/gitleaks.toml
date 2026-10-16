@@ -1,0 +1,3 @@
+# skill-check가 gitleaks에 --config로 넘기는 설정. 기본 규칙만 쓰고, 검사 대상 안의 .gitleaks.toml은 적용하지 않는다.
+[extend]
+useDefault = true

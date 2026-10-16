@@ -1,0 +1,24 @@
+{
+  "name": "harness-james",
+  "owner": {
+    "name": "james"
+  },
+  "description": "james의 개인 Claude Code 하네스 마켓플레이스",
+  "plugins": [
+    {
+      "name": "harness-james",
+      "source": "./plugins/harness-james",
+      "description": "pane-lead·skill-check·verify·verify-design 스킬과 에이전트, push·PR 흐름 훅, verify 에이전트 가드"
+    },
+    {
+      "name": "work-trace",
+      "source": "./plugins/work-trace",
+      "description": "세션 우측 패널에 작업 진행 상황, 막힌 곳, 모델이 무엇을 왜 골랐는지를 실시간으로 보여줍니다."
+    },
+    {
+      "name": "context-band",
+      "source": "./plugins/context-band",
+      "description": "프롬프트 바로 위에 컨텍스트 창 사용량, 자동 압축까지 남은 양, 메모리 파일, 비용, 사용량 한도를 한 줄로 보여줍니다."
+    }
+  ]
+}

@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verify-design/findings/0.1.0",
+  "title": "설계 검증 findings (framework 7.1)",
+  "type": "object",
+  "required": ["schema", "level", "criteria", "findings"],
+  "properties": {
+    "schema": { "const": "findings/0.1.0" },
+    "run_id": { "type": "string" },
+    "level": { "enum": ["light", "standard", "deep"] },
+    "label": { "type": ["string", "null"] },
+    "profile": { "type": "object" },
+    "rubric_version": { "type": ["string", "null"] },
+    "models": {
+      "type": "object",
+      "description": "judge·refuter = 요청 모델(스크립트가 정함). *_observed = 트랜스크립트 등으로 확인한 실제 실행 모델(없으면 미확인). judge_reported = 에이전트가 스스로 적은 값",
+      "properties": {
+        "judge": { "type": "string" }, "judge_observed": { "type": ["string", "null"] }, "judge_reported": { "type": ["string", "null"] },
+        "refuter": { "type": ["string", "null"] }, "refuter_observed": { "type": ["string", "null"] }
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Z]{3}-\\d{2}$" },
+          "status": { "enum": ["evaluated", "not-applicable", "disabled", "skipped-unchanged", "missing"] },
+          "note": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "rejected": { "type": "array", "items": { "$ref": "#/$defs/finding" } },
+    "overflow": { "type": "object", "description": "건수 상한 밖 finding: 기준 → {count, locations[]}" },
+    "limits": { "type": "object", "description": "적용한 상한 {total, per_criterion, low_info, refute}" },
+    "external_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claim", "location"],
+        "properties": {
+          "claim": { "type": "string" }, "location": { "type": "string" }, "primary_source_needed": { "type": "string" },
+          "owner": { "type": "string" }, "impact_if_wrong": { "type": "string" }
+        }
+      }
+    },
+    "coverage": { "type": ["object", "null"] },
+    "documents_read": { "type": "array", "items": { "type": "string" } },
+    "documents_unread": { "type": "array", "items": { "type": "string" } },
+    "candidate_dispositions": {
+      "type": "array",
+      "description": "light 구체 후보(extract/index.json obligated_candidates) 처리. 후보마다 하나: 채택(finding) 또는 기각(reason). verdict.mjs check가 누락을 잡는다",
+      "items": {
+        "type": "object",
+        "required": ["candidate", "disposition"],
+        "properties": {
+          "candidate": { "type": "string" },
+          "disposition": { "enum": ["adopted", "rejected"] },
+          "finding": { "type": "string" },
+          "reason": { "type": "string" },
+          "finding_before_merge": { "type": "string" }
+        }
+      }
+    },
+    "dispositions_summary": { "type": "object", "description": "finalize가 씀 {required, adopted, rejected, missing[]}" },
+    "recommendation_conflicts": {
+      "type": "array",
+      "description": "권고가 서로 반대 방향인 finding 짝. 없으면 빈 배열(필드는 필수)",
+      "items": {
+        "type": "object",
+        "required": ["findings", "note"],
+        "properties": { "findings": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 }, "note": { "type": "string" } }
+      }
+    },
+    "traits": { "type": "array", "items": { "type": "string" } }
+  },
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "required": ["doc", "line", "quote"],
+      "properties": {
+        "doc": { "type": "string", "description": "프로파일의 논리 경로" },
+        "section": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "quote": { "type": "string", "description": "문서에 실제로 있는 문자열" }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": ["id", "criterion", "severity", "confidence", "scope_state", "method", "touches", "failure_scenario", "recommendation", "source"],
+      "properties": {
+        "id": { "type": "string" },
+        "criterion": { "type": "string", "pattern": "^[A-Z]{3}-\\d{2}$" },
+        "title": { "type": "string" },
+        "severity": { "enum": ["critical", "high", "medium", "low", "info"] },
+        "severity_before": { "enum": ["critical", "high", "medium", "low", "info"] },
+        "confidence": { "enum": ["confirmed", "likely", "possible"] },
+        "scope_state": { "enum": ["changed", "carried", "resolved"] },
+        "method": { "type": "string", "pattern": "^[SLXH](\\+[SLXH])*$" },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+        "absence": {
+          "type": ["object", "null"],
+          "properties": {
+            "searched": { "type": "array", "items": { "type": "string" } },
+            "queries": { "type": "array", "items": { "type": "string" } },
+            "result": { "type": "string" }
+          }
+        },
+        "touches": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "failure_scenario": { "type": "string" },
+        "rationale": { "type": "string" },
+        "recommendation": { "type": "string" },
+        "also_affects": { "type": "array", "items": { "type": "string" } },
+        "conflicts_with": { "type": "array", "items": { "type": "string" }, "description": "반대 방향 권고를 하는 다른 finding ID(framework 7.5)" },
+        "source": { "enum": ["script", "judge", "human"] },
+        "found_by_model": { "type": "string" },
+        "open_check": { "type": "boolean", "description": "X·H 확인이 아직 열려 있는가(기본 true)" },
+        "not_refuted_cap": { "type": "boolean", "description": "반증 상한(limits.refute) 밖이라 반증하지 않음. refutation = {verdict: uncertain, model: null, note: \"not-refuted: cap\"}" },
+        "refutation": {
+          "type": ["object", "null"],
+          "properties": {
+            "verdict": { "enum": ["upheld", "downgraded", "rejected", "uncertain"] },
+            "model": { "type": ["string", "null"] },
+            "severity_after": { "enum": ["critical", "high", "medium", "low", "info"] },
+            "confidence_after": { "enum": ["confirmed", "likely", "possible"] },
+            "note": { "type": "string" }
+          }
+        }
+      },
+      "anyOf": [
+        { "required": ["evidence"], "properties": { "evidence": { "minItems": 1 } } },
+        { "required": ["absence"] }
+      ]
+    }
+  }
+}

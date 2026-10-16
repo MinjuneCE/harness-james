@@ -1,0 +1,45 @@
+{
+  "$comment": "합성 예시 프로파일. 프로젝트의 docs/evaluation/profiles/<이름>.json으로 복사해 고친다. 필드 설명: references/profile-guide.md",
+  "version": "1.0.0",
+  "repo": {
+    "key": "api",
+    "name": "acme-api",
+    "path": "acme-api",
+    "github": "acme/acme-api",
+    "default_base": "origin/main",
+    "aliases": ["api", "acme-api"],
+    "traits": ["server"]
+  },
+  "dimensions": {
+    "SEC": { "weight": 0.25 },
+    "PERF": { "weight": 0.15 },
+    "ARCH": { "weight": 0.15 },
+    "REL": { "weight": 0.25 },
+    "OPS": { "weight": 0.1 },
+    "TEST": { "weight": 0.1 }
+  },
+  "floors": { "dimension": 60, "overall": 70 },
+  "comment_syntax": { "**/*.ts": ["//", "/*", "*", "*/"], "**/*.yml": ["#"] },
+  "ignore_line_patterns": { "**/*.ts": ["^\\s*import\\s.+;\\s*$"] },
+  "structures": [
+    {
+      "id": "api.payment",
+      "name": "결제 요청 경로 (검증 → 결제사 호출 → 상태 저장)",
+      "criticality": 90,
+      "review_threshold": 50,
+      "paths": ["src/payment/**"],
+      "exclude": ["src/payment/**/*.test.ts"],
+      "specs": ["docs/specs/payment.md"]
+    }
+  ],
+  "criteria": { "SEC-04": { "season_review_threshold": 20 } },
+  "rules": [
+    {
+      "id": "no-eval", "repo": "api", "kind": "added-line-regex", "criterion": "SEC-01", "severity": "medium", "confidence": "likely",
+      "paths": ["src/**"], "pattern": "\\beval\\(", "title": "eval 사용", "message": "입력이 코드로 실행될 수 있음"
+    }
+  ],
+  "tools": [],
+  "secret_scan": { "criterion": "SEC-05", "exclude": ["src/**/*.test.ts"] },
+  "parameters": { "$comment": "판정 참고 파라미터. null은 미확인", "peak_factor": null }
+}

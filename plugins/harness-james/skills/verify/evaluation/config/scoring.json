@@ -1,0 +1,63 @@
+{
+  "$comment": "PR 검증 수치 파라미터. 의미는 framework.md 3-7장. 바꾸면 framework.md 버전과 calibration을 함께 갱신한다.",
+  "version": "1.0.0",
+  "model_policy": {
+    "required_model": "claude-opus-5-5",
+    "required_effort": "max",
+    "min_subagent_spawn_depth": 3
+  },
+  "severity_points": { "critical": 60, "high": 30, "medium": 12, "low": 4, "info": 0 },
+  "confidence_factor": { "confirmed": 1.0, "likely": 0.7, "possible": 0.4 },
+  "counted_origins": ["introduced", "worsened"],
+  "origin_line_tolerance": 5,
+  "refute_min_severity": "high",
+  "structure_impact": {
+    "magnitude_steps": [
+      { "max_lines": 0, "factor": 0 },
+      { "max_lines": 10, "factor": 0.6 },
+      { "max_lines": 50, "factor": 0.8 },
+      { "max_lines": null, "factor": 1.0 }
+    ],
+    "finding_bonus": 20,
+    "finding_bonus_min_severity": "medium"
+  },
+  "defaults": {
+    "criterion_weight": 1.0,
+    "criterion_review_threshold": 50,
+    "structure_review_threshold": 60,
+    "dimension_floor": 60,
+    "overall_floor": 70,
+    "block_on_critical_confidence": ["confirmed", "likely"]
+  },
+  "season": {
+    "name": "BFCM",
+    "windows": [
+      { "label": "BFCM 2026", "from": "2026-11-01", "to": "2026-12-07" },
+      { "label": "BFCM 2027", "from": "2027-11-01", "to": "2027-12-06" }
+    ],
+    "review_threshold_factor": 0.8,
+    "floor_add": 10,
+    "freeze_criticality": 85,
+    "dimension_weight_factor": { "PERF": 1.5, "REL": 1.5 }
+  },
+  "dimensions": {
+    "SEC": "보안·프라이버시",
+    "PERF": "성능·확장성(BF)",
+    "ARCH": "아키텍처",
+    "REL": "신뢰성·정합성",
+    "OPS": "관측성·운영",
+    "TEST": "테스트 적정성",
+    "A11Y": "접근성·i18n·마켓"
+  },
+  "secret_patterns": [
+    { "id": "shp-access-token", "pattern": "shp(at|ss|ca|pa)_[0-9a-fA-F]{32}", "severity": "critical" },
+    { "id": "private-key", "pattern": "-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----", "severity": "critical" },
+    { "id": "aws-access-key", "pattern": "\\bAKIA[0-9A-Z]{16}\\b", "severity": "critical" },
+    { "id": "github-token", "pattern": "\\bgh[pousr]_[A-Za-z0-9]{36,}\\b", "severity": "critical" },
+    { "id": "slack-token", "pattern": "\\bxox[baprs]-[0-9A-Za-z-]{10,}", "severity": "high" },
+    { "id": "stripe-live", "pattern": "\\b(sk|rk)_live_[0-9A-Za-z]{16,}", "severity": "critical" },
+    { "id": "google-api-key", "pattern": "\\bAIza[0-9A-Za-z_\\-]{35}\\b", "severity": "high" },
+    { "id": "jwt", "pattern": "\\beyJ[A-Za-z0-9_-]{10,}\\.eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}", "severity": "high" },
+    { "id": "assigned-secret", "pattern": "(?i)(client[_-]?secret|api[_-]?secret|access[_-]?token|password|passwd)\\s*[:=]\\s*['\"]?(?!\\$\\{|<|your|changeme|example|xxx|\\*\\*\\*)[A-Za-z0-9_\\-./+=]{12,}", "severity": "high" }
+  ]
+}

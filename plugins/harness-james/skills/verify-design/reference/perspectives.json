@@ -1,0 +1,43 @@
+[
+  {
+    "key": "implementer",
+    "name": "구현자",
+    "lens": "이 문서만 보고 구현할 때 추측해야 하는 곳, 문서끼리 어긋나 무엇을 따라야 할지 모르는 곳, 상태·이벤트·경합에서 동작이 정해지지 않은 곳을 본다.",
+    "primary": ["CON-01", "CON-02", "CON-03", "CON-04", "CON-05", "CON-06", "CON-07", "REQ-01", "REQ-02", "REQ-04", "BEH-01", "BEH-02", "BEH-03", "BEH-04", "BEH-05", "BEH-06", "BEH-07", "BEH-08", "BND-03", "BND-04", "BND-05", "TRC-05"],
+    "secondary": ["EVD-06", "FLR-04"],
+    "roles": ["overview", "requirement", "spec", "plan", "data-model", "contract", "tasks", "scenarios"]
+  },
+  {
+    "key": "operator",
+    "name": "운영자",
+    "lens": "운영 중 의존 시스템이 실패하거나 느려지거나 결과가 불명일 때, 사람이 개입해야 할 때, 출시·되돌림·호환이 필요할 때 무엇이 정해져 있는지 본다.",
+    "primary": ["FLR-01", "FLR-02", "FLR-03", "FLR-04", "FLR-05", "QAS-01", "QAS-02", "QAS-03", "RUN-01", "RUN-02", "RUN-03"],
+    "secondary": ["BEH-03", "BEH-06", "BEH-07"],
+    "roles": ["overview", "plan", "data-model", "contract", "verification", "spec"]
+  },
+  {
+    "key": "attacker",
+    "name": "공격자",
+    "lens": "신뢰하지 않는 입력·주체가 경계를 넘는 곳에서 위조·재전송·순서 조작·권한 우회·민감 데이터 노출이 설계상 막혀 있는지 본다.",
+    "primary": ["THR-01", "THR-02", "THR-03", "THR-04"],
+    "secondary": ["BEH-04", "BEH-05"],
+    "roles": ["spec", "plan", "data-model", "contract", "verification"]
+  },
+  {
+    "key": "verifier",
+    "name": "검증자",
+    "lens": "요구마다 작업과 판별력 있는 검증이 있는지, 수용 기준이 관찰 가능한지, 가정이 무너졌을 때 알아챌 수 있는지, 근거의 기준 시점이 고정됐는지 본다.",
+    "primary": ["TRC-01", "TRC-02", "REQ-03", "REQ-05", "RUN-04", "BND-02"],
+    "secondary": ["CON-01", "CON-02", "CON-03", "CON-04", "CON-05", "CON-06", "CON-07"],
+    "roles": ["requirement", "spec", "tasks", "verification", "scenarios", "overview"]
+  },
+  {
+    "key": "decision-reviewer",
+    "name": "결정 검토자",
+    "lens": "결정마다 대안·결과·가역성·상태가 있는지, 근거가 1차 출처인지, 설계 요소가 원 요구에 실제로 필요한지(제거 시험), 범위를 넘지 않았는지 본다.",
+    "primary": ["DEC-01", "DEC-02", "DEC-03", "DEC-04", "DEC-05", "EVD-01", "EVD-02", "EVD-03", "EVD-04", "EVD-05", "EVD-06", "TRC-03", "TRC-04", "QAS-04", "BND-01", "BND-06"],
+    "secondary": [],
+    "roles": ["overview", "requirement", "research", "decision-log", "spec", "plan", "source-material", "review-input"],
+    "must_read_roles": ["source-material"]
+  }
+]

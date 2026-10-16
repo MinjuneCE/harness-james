@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+*.log
+# 시험이 남기는 임시 폴더
+**/test/.tmp/
+.tmp/
+# 프로젝트에서 플러그인을 쓸 때 생기는 실행 산출물(이 레포 안에서 시험한 경우)
+.verify/
+docs/evaluation/design/reports/*/runs/

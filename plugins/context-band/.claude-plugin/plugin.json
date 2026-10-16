@@ -1,0 +1,9 @@
+{
+  "name": "context-band",
+  "version": "0.1.2",
+  "description": "프롬프트 바로 위에 컨텍스트 창 사용량, 자동 압축까지 남은 양, 메모리 파일, 비용, 사용량 한도를 한 줄로 보여줍니다.",
+  "author": {
+    "name": "james"
+  },
+  "types": "./types/index.d.ts"
+}
