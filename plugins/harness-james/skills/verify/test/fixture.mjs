@@ -115,8 +115,11 @@ export function makeWorkspace() {
   return { ws, repo, cleanup: () => rmSync(ws, { recursive: true, force: true }) };
 }
 
-export function run(ws, script, args = [], { input, env = {} } = {}) {
-  const r = spawnSync(process.execPath, [join(SCRIPTS, script), ...args], {
+// prepare.mjs는 --session이 있어야 돈다. 시험은 고정 세션 id를 넣는다(session: false면 넣지 않음)
+export const TEST_SESSION = "11111111-2222-4333-8444-555555555555";
+export function run(ws, script, args = [], { input, env = {}, session = true } = {}) {
+  const sessionArgs = script === "prepare.mjs" && session && !args.some((a) => a.startsWith("--session")) ? ["--session", TEST_SESSION] : [];
+  const r = spawnSync(process.execPath, [join(SCRIPTS, script), ...sessionArgs, ...args], {
     cwd: ws, input: input ?? "", encoding: "utf8", env: cleanEnv({ VERIFY_WORKSPACE: ws, ...env }),
   });
   return { code: r.status, out: r.stdout, err: r.stderr };

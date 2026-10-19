@@ -94,7 +94,7 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 | require-push-approval | 모든 레포 | 모든 `git push`와 `gh pr merge`에 사용자 확인을 받아요. settings의 `permissions.ask`가 따로 필요 없어요. |
 | require-pr-flow | 모든 레포 | 보호 브랜치(main·master·dev·develop·development·stg·stage·staging·prd·prod·production)로 직접 push하면 거부해요. |
 | require-verify-before-pr | verify 프로파일이 있는 레포만 | `gh pr create` 전에 지금 HEAD의 verify 리포트를 봐요. 없거나 BLOCK·REVIEW_REQUIRED면 확인을 받아요. 다른 레포에서는 조용해요. |
-| verify-guard | verify 에이전트만 | 훅 입력의 `agent_type`이 `harness-james:verify-*`일 때만 판정해요(쓰기 제한, 보정·정답 자료 차단, 넓은 재귀 검색 차단, 하위 에이전트 제한). 다른 세션은 내장 모듈과 정규식 하나만 쓰고 바로 끝나요. |
+| verify-guard | verify 에이전트만 | 훅 입력의 `agent_type`이 `harness-james:verify-*`일 때만 판정해요(쓰기 제한, 보정·정답 자료와 다른 실행 폴더를 경로 규칙으로 차단 — 재귀 검색·glob·git 기록 포함, 하위 에이전트 제한). /verify 1단계가 실행을 세션에 등록하고, 판정 에이전트는 그 세션의 실행 폴더만 읽어요. 다른 세션은 내장 모듈과 정규식 하나만 쓰고 바로 끝나요. |
 
 - 메시지는 "프로젝트 규칙:"으로 시작해요.
 - 플러그인 에이전트에서는 frontmatter `hooks`가 돌지 않아서, verify-guard는 플러그인 `hooks/hooks.json`에 걸려 있어요.

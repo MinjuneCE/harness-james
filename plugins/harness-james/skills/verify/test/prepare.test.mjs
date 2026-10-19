@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { SKILL_DIR, WEIRD_BRANCH, cleanEnv, gitIn, makeWorkspace, prepare, run } from "./fixture.mjs";
+import { SKILL_DIR, TEST_SESSION, WEIRD_BRANCH, cleanEnv, gitIn, makeWorkspace, prepare, run } from "./fixture.mjs";
 
 let fx;
 before(() => { fx = makeWorkspace(); });
@@ -41,12 +41,74 @@ test("--args-stdin: $·백틱·괄호가 든 브랜치 이름을 그대로 받�
 test("SKILL.md 1단계 블록을 셸로 실행해도 인자가 확장되지 않는다", () => {
   const md = readFileSync(join(SKILL_DIR, "SKILL.md"), "utf8");
   const block = md.match(/```bash\n(node "\$\{CLAUDE_SKILL_DIR\}\/scripts\/prepare\.mjs"[\s\S]*?)```/)[1];
-  // Claude Code가 $ARGUMENTS와 ${CLAUDE_SKILL_DIR}를 글자 그대로 바꿔 넣는 것을 흉내 낸다
-  const cmd = block.replaceAll("${CLAUDE_SKILL_DIR}", SKILL_DIR).replace("$ARGUMENTS", `demo ${WEIRD_BRANCH} --no-fetch`);
+  // Claude Code가 $ARGUMENTS·${CLAUDE_SKILL_DIR}·${CLAUDE_SESSION_ID}를 글자 그대로 바꿔 넣는 것을 흉내 낸다
+  const cmd = block.replaceAll("${CLAUDE_SKILL_DIR}", SKILL_DIR).replaceAll("${CLAUDE_SESSION_ID}", TEST_SESSION).replace("$ARGUMENTS", `demo ${WEIRD_BRANCH} --no-fetch`);
   const r = spawnSync("sh", ["-c", cmd], { cwd: fx.ws, encoding: "utf8", env: cleanEnv({ VERIFY_WORKSPACE: fx.ws }) });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(ctxOf(r.stdout).target.branch, WEIRD_BRANCH);
   assert.ok(!existsSync(join(fx.ws, "PWNED")));
+});
+
+// ---- hj-blind: 실행 등록(--session) ----
+const regOf = (sid) => JSON.parse(readFileSync(join(fx.ws, ".verify/sessions", `${sid}.json`), "utf8"));
+const runCount = () => (existsSync(join(fx.ws, ".verify/runs")) ? readdirSync(join(fx.ws, ".verify/runs")).length : 0);
+
+test("--session: 실행을 세션에 등록하고, 가장 최근 실행이 마지막에 온다", () => {
+  const sid = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const a = run(fx.ws, "prepare.mjs", ["--session", sid, "demo", "feat/x", "--no-fetch"]);
+  assert.equal(a.code, 0, a.err);
+  const first = ctxOf(a.out).run_dir;
+  assert.deepEqual(regOf(sid).runs.map((r) => r.run_dir), [first]);
+  const b = run(fx.ws, "prepare.mjs", [`--session=${sid}`, "--args-stdin"], { input: "demo feat/x --no-fetch --base main" });
+  assert.equal(b.code, 0, b.err);
+  const second = ctxOf(b.out).run_dir;
+  const reg = regOf(sid);
+  assert.equal(reg.session_id, sid);
+  assert.equal(reg.runs.at(-1).run_dir, second);
+  assert.ok(second.startsWith(".verify/runs/"));
+});
+
+test("--session이 없거나 UUID가 아니면 실행 폴더를 만들기 전에 종료 코드 2", () => {
+  const before = runCount();
+  for (const args of [
+    ["demo", "feat/x", "--no-fetch"],
+    ["--session", "", "demo", "feat/x", "--no-fetch"],
+    ["--session", "${CLAUDE_SESSION_ID}", "demo", "feat/x", "--no-fetch"], // 치환되지 않은 글자 그대로
+    ["--session", "../../x", "demo", "feat/x", "--no-fetch"],
+    ["--session", TEST_SESSION, "--session", TEST_SESSION, "demo", "feat/x", "--no-fetch"],
+  ]) {
+    const r = run(fx.ws, "prepare.mjs", args, { session: false });
+    assert.equal(r.code, 2, JSON.stringify(args));
+    assert.match(r.err, /세션 id를 받지 못함/);
+  }
+  assert.equal(runCount(), before);
+  // 인자 원문(stdin)으로는 --session을 넘길 수 없다
+  const viaStdin = run(fx.ws, "prepare.mjs", ["--args-stdin"], { input: `demo feat/x --no-fetch --session ${TEST_SESSION}`, session: false });
+  assert.equal(viaStdin.code, 2);
+});
+
+test("SKILL.md 1단계 블록: 세션 id가 치환되지 않으면(셸이 빈 값으로 확장) 종료 코드 2", () => {
+  const md = readFileSync(join(SKILL_DIR, "SKILL.md"), "utf8");
+  const block = md.match(/```bash\n(node "\$\{CLAUDE_SKILL_DIR\}\/scripts\/prepare\.mjs"[\s\S]*?)```/)[1];
+  assert.match(block, /--session "\$\{CLAUDE_SESSION_ID\}"/);
+  const cmd = block.replaceAll("${CLAUDE_SKILL_DIR}", SKILL_DIR).replace("$ARGUMENTS", "demo feat/x --no-fetch");
+  const env = cleanEnv({ VERIFY_WORKSPACE: fx.ws });
+  delete env.CLAUDE_SESSION_ID;
+  const r = spawnSync("sh", ["-c", cmd], { cwd: fx.ws, encoding: "utf8", env });
+  assert.equal(r.status, 2, r.stdout);
+  assert.match(r.stderr, /세션 id를 받지 못함/);
+});
+
+test("오래된 세션 등록은 실행 정리와 함께 지운다", () => {
+  const dir = join(fx.ws, ".verify/sessions");
+  mkdirSync(dir, { recursive: true });
+  const stale = join(dir, "99999999-9999-4999-8999-999999999999.json");
+  writeFileSync(stale, JSON.stringify({ runs: [] }));
+  const old = new Date(Date.now() - 40 * 86400e3);
+  utimesSync(stale, old, old);
+  assert.equal(prepare(fx.ws).code, 0);
+  assert.ok(!existsSync(stale));
+  assert.ok(existsSync(join(dir, `${TEST_SESSION}.json`)));
 });
 
 test("--args-stdin: 따옴표로 묶은 인자", () => {

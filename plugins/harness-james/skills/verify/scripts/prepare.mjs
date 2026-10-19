@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 // /verify 1단계: 사전 점검 → 대상 해석 → base/head 트리 추출 → diff·구조 매핑 → 자동 신호 → context.json
-// 사용: node prepare.mjs [repo] [target] [--base <ref>] [--season auto|bf|off] [--no-fetch] [--keep-runs N]
-//       node prepare.mjs --args-stdin   (위 인자 원문을 stdin으로. 셸식 따옴표로만 나누고 $·백틱·글롭은 확장 안 함)
+// 사용: node prepare.mjs --session <세션 id> [repo] [target] [--base <ref>] [--season auto|bf|off] [--no-fetch] [--keep-runs N]
+//       node prepare.mjs --session <세션 id> --args-stdin   (위 인자 원문을 stdin으로. 셸식 따옴표로만 나누고 $·백틱·글롭은 확장 안 함)
+//   --session: Claude Code 세션 id(UUID). 실행을 .verify/sessions/<id>.json에 등록한다.
+//              verify-guard는 그 세션의 판정·반증·탐색 에이전트에게 가장 최근 등록 실행 폴더만 열어 준다. 없으면 종료 코드 2
 //   repo:   프로파일 별칭 (profiles/*.json repo.aliases)
 //   target: 브랜치 | SHA | pr:N | #N   (생략 시 해당 레포의 현재 HEAD)
 //   --repo-path <dir>: 프로파일의 레포 대신 이 경로의 클론을 검증 (보정용 시드 브랜치)
 //   --no-gate: 리포트를 PR 게이트 index에 등록하지 않음 (원본 레포에 있는 시험용 브랜치 검증 시)
 // 소스 레포의 작업 트리·브랜치는 건드리지 않는다 (git fetch / rev-parse / archive / diff / log 만 사용).
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -34,10 +36,29 @@ function readArgs(argv) {
     process.exit(2);
   }
 }
+// --session <id>: 인자 원문(stdin)과 따로 명령줄에서만 받는다. SKILL.md가 ${CLAUDE_SESSION_ID}를 넣는다
+const SESSION_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function takeSession(argv) {
+  const rest = [], found = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--session") { found.push(argv[i + 1] ?? ""); i++; continue; }
+    if (argv[i].startsWith("--session=")) { found.push(argv[i].slice(10)); continue; }
+    rest.push(argv[i]);
+  }
+  return { session: found.length === 1 ? found[0] : null, count: found.length, rest };
+}
 const ARG_SPEC = { flags: ["no-fetch", "json", "no-gate"], options: ["base", "season", "keep-runs", "repo-path"] };
+const sess = takeSession(process.argv.slice(2));
 let args;
-try { args = parseArgv(readArgs(process.argv.slice(2)), ARG_SPEC); } catch (e) {
+try { args = parseArgv(readArgs(sess.rest), ARG_SPEC); } catch (e) {
   console.error(`✖ ${e.message}`);
+  process.exit(2);
+}
+if (!sess.session || !SESSION_RE.test(sess.session)) {
+  const got = sess.count > 1 ? "--session이 여러 번 옴" : sess.count === 0 ? "--session 없음" : `값이 UUID가 아님: "${String(sess.session).slice(0, 60)}"`;
+  console.error(`✖ 세션 id를 받지 못함 (${got}) — 검증을 시작하지 않음`);
+  console.error("  SKILL.md 1단계 명령을 그대로 실행해야 한다: --session \"${CLAUDE_SESSION_ID}\" 가 Claude Code 세션 id로 바뀌어 들어온다.");
+  console.error("  세션 id가 없으면 verify-guard가 판정 에이전트의 실행 폴더 읽기를 모두 막는다.");
   process.exit(2);
 }
 const ws = findWorkspace();
@@ -417,12 +438,34 @@ async function runModuleTool(profile, tool, files, trees, criteria, season) {
   } catch (e) { return fail(`실행 오류: ${e.message}`); }
 }
 
-// ---------- 5. 오래된 실행 정리 ----------
+// ---------- 5. 실행 등록 · 오래된 실행 정리 ----------
+// .verify/sessions/<세션 id>.json = { session_id, runs: [{ run_dir, created_at }], updated_at }. 마지막 항목이 그 세션의 자기 실행이다.
+// prepare만 쓴다(verify-guard가 에이전트의 쓰기를 막음)
+const SESSIONS_DIR = join(ws, ".verify/sessions");
+const SESSION_KEEP_DAYS = 30;
+function registerRun(sid, runDir) {
+  mkdirSync(SESSIONS_DIR, { recursive: true });
+  const file = join(SESSIONS_DIR, `${sid}.json`), rel = relative(ws, runDir);
+  let runs = [];
+  try { const old = JSON.parse(readFileSync(file, "utf8")); if (Array.isArray(old?.runs)) runs = old.runs.filter((r) => typeof r?.run_dir === "string" && r.run_dir !== rel); } catch {}
+  runs = [...runs, { run_dir: rel, created_at: now.toISOString() }].slice(-20);
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify({ session_id: sid, runs, updated_at: now.toISOString() }, null, 2)}\n`);
+  renameSync(tmp, file);
+}
 function pruneRuns(keep) {
   const dir = join(ws, ".verify/runs");
-  if (!existsSync(dir)) return;
-  const runs = readdirSync(dir).map((n) => join(dir, n)).filter((p) => statSync(p).isDirectory()).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
-  for (const p of runs.slice(keep)) for (const t of ["head", "base"]) rmSync(join(p, t), { recursive: true, force: true });
+  if (existsSync(dir)) {
+    const runs = readdirSync(dir).map((n) => join(dir, n)).filter((p) => statSync(p).isDirectory()).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+    for (const p of runs.slice(keep)) for (const t of ["head", "base"]) rmSync(join(p, t), { recursive: true, force: true });
+  }
+  if (existsSync(SESSIONS_DIR)) {
+    const cutoff = now.getTime() - SESSION_KEEP_DAYS * 86400e3;
+    for (const n of readdirSync(SESSIONS_DIR)) {
+      const p = join(SESSIONS_DIR, n);
+      try { if (statSync(p).mtimeMs < cutoff) rmSync(p, { force: true }); } catch {}
+    }
+  }
 }
 
 // ---------- main ----------
@@ -449,6 +492,7 @@ const frameworkPath = evalFile(ws, "framework.md");
 const runId = `${profile.repo.key}-${target.sha.slice(0, 7)}-${stamp.compact}`;
 const runDir = join(ws, ".verify/runs", runId);
 for (const d of ["judgments", "refutation", "refutation-targets", "packets", "explore"]) mkdirSync(join(runDir, d), { recursive: true });
+registerRun(sess.session, runDir);
 
 // 판정 기준 사본: 플러그인 설치 경로는 작업 폴더 밖이라 하위 에이전트의 Read가 권한 확인에 걸린다(-p에서는 거부).
 // 이번 실행에 쓰는 framework·scoring·적용 차원 rubric을 RUN_DIR/evaluation/에 복사하고, context의 path는 사본을, source_path는 원래 위치를 가리킨다

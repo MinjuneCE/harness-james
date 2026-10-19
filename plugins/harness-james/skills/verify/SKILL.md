@@ -23,15 +23,15 @@ effort: max
 
 ## 1. 준비
 
-인자는 셸을 거치지 않게 따옴표 붙인 heredoc으로 넘긴다. 스크립트가 셸식 따옴표로만 나누고 `$`·백틱·글롭은 확장하지 않는다.
+인자는 셸을 거치지 않게 따옴표 붙인 heredoc으로 넘긴다. 스크립트가 셸식 따옴표로만 나누고 `$`·백틱·글롭은 확장하지 않는다. `--session`은 이 실행을 세션에 등록한다. `verify-guard`는 이 세션의 판정·반증·탐색 에이전트에게 등록된 실행 폴더만 열어 준다.
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/scripts/prepare.mjs" --args-stdin <<'VERIFY_ARGS'
+node "${CLAUDE_SKILL_DIR}/scripts/prepare.mjs" --session "${CLAUDE_SESSION_ID}" --args-stdin <<'VERIFY_ARGS'
 $ARGUMENTS
 VERIFY_ARGS
 ```
 
-- 종료 코드 2: 사전 점검(모델 정책)이나 대상 해석에 실패한 것이다. 출력된 오류를 그대로 보고하고 끝낸다.
+- 종료 코드 2: 세션 id를 받지 못했거나, 사전 점검(모델 정책)·대상 해석에 실패한 것이다. 출력된 오류를 그대로 보고하고 끝낸다.
 - 종료 코드 3: base 대비 변경이 없다. "검증할 변경 없음"과 대상·base를 보고하고 끝낸다.
 - 성공하면 첫 줄 `RUN_DIR=...`에서 실행 디렉터리를 얻는다(이하 `RUN_DIR`). 출력 요약(변경 규모, 핵심 구조, 자동 신호, 경고)을 기억해 둔다.
 - `RUN_DIR/context.json`을 읽고 적용 차원(`dimensions[].id`), 건드린 핵심 구조(`structures[]` 중 `touched`), 자동 신호 수를 확인한다.

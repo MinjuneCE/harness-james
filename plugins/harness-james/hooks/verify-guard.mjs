@@ -2,15 +2,17 @@
 // /verify 에이전트 전용 PreToolUse 가드. 플러그인 hooks/hooks.json에 걸려 모든 세션의 도구 호출마다 불리고,
 // 훅 입력의 agent_type이 verify 에이전트(lib/verify-agents.mjs)일 때만 판정한다. 그 밖의 호출은 바로 통과시킨다.
 // (플러그인 에이전트는 frontmatter hooks를 무시한다: code.claude.com/docs/en/sub-agents "plugin subagents don't support the hooks ... fields")
-// 검증은 읽기 전용이어야 한다: 쓰기는 .verify/ 와 <평가 폴더>/reports/ 아래만,
+// 검증은 읽기 전용이어야 한다: 쓰기는 .verify/(실행 등록 .verify/sessions 제외) 와 <평가 폴더>/reports/ 아래만,
 // 소스 레포 변경·빌드·테스트(자격증명으로 실제 외부 시스템을 부를 수 있음)·배포·외부 전송은 거부한다.
 // 평가 폴더는 프로젝트의 docs/evaluation(VERIFY_EVAL_DIR로 바꿀 수 있음). 프로젝트 전용 차단 명령은 <평가 폴더>/config/guard.json에 둔다.
 // Agent 도구는 lib/verify-agents.mjs의 CHILDREN에 적힌, 자기와 같은 플러그인의 subagent_type만 띄울 수 있다.
+// 블라인드 읽기는 lib/blind-paths.mjs가 Read·Grep·Glob·Bash를 같은 경로 규칙으로 판정한다. .verify/runs는 훅 입력 session_id로
+// prepare.mjs --session이 등록한 가장 최근 실행만 열어 준다(등록이 없으면 전부 막음).
 // verify 에이전트의 호출에서 훅이 스스로 죽으면 막는다(fail closed): 입력을 못 읽거나, 모듈·guard.json을 못 읽거나, 예외가 나면
 // deny JSON을 내고 exit 2로 끝낸다. Claude Code는 0·2 밖의 종료 코드와 시작 실패·시간 초과를 통과로 보므로
 // (code.claude.com/docs/en/hooks "Block the action when a hook fails"), hooks.json에도 onFailure: block을 둔다.
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 const denyJson = (reason) => JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `[verify-guard] ${reason}` } });
 const crash = (e) => {
@@ -22,7 +24,7 @@ const crash = (e) => {
 process.on("uncaughtException", crash);
 process.on("unhandledRejection", crash);
 
-let input, classify, scan, role, allowedAgents;
+let input, classify, scan, createBlind, makeEntry, role, allowedAgents;
 try {
   input = JSON.parse(readFileSync(0, "utf8"));
 } catch (e) {
@@ -37,6 +39,7 @@ try {
   if (!role) process.exit(0);
   allowedAgents = agents.allowedChildren(role);
   ({ classify, scan } = await import("./lib/shell-commands.mjs"));
+  ({ createBlind, makeEntry } = await import("./lib/blind-paths.mjs"));
 } catch (e) {
   crash(new Error(`lib 모듈을 불러오지 못함: ${e.message}`));
 }
@@ -57,12 +60,14 @@ const EVAL = relative(root, evalDir) || "."; // 메시지·글자 단위 판정�
 const projectRules = loadProjectRules(join(evalDir, "config/guard.json"));
 const allowedDirs = [join(root, ".verify"), join(evalDir, "reports")];
 const WRITE_WHY = `검증 중에는 .verify/ 와 ${EVAL}/reports/ 밖에 쓸 수 없음`;
+// 실행 등록(.verify/sessions/<session_id>.json)은 prepare.mjs만 쓴다. 에이전트는 못 쓴다.
+// VERIFY_GUARD_SESSIONS_DIR: 시험용으로 등록 위치를 바꾼다(훅 프로세스 환경이라 에이전트가 바꿀 수 없음)
+const sessionsDir = process.env.VERIFY_GUARD_SESSIONS_DIR || join(root, ".verify/sessions");
+const protectedDirs = [join(root, ".verify/sessions"), sessionsDir];
+const under = (d, abs) => { const rel = relative(d, abs); return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)); };
 const inside = (p) => {
   const abs = isAbsolute(p) ? p : resolve(input.cwd || root, p);
-  return allowedDirs.some((d) => {
-    const rel = relative(d, abs);
-    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-  });
+  return !protectedDirs.some((d) => under(d, abs)) && allowedDirs.some((d) => under(d, abs));
 };
 const deny = (reason) => {
   console.log(denyJson(reason));
@@ -73,32 +78,43 @@ const tool = input.tool_name;
 const ti = input.tool_input ?? {};
 
 // 블라인드 유지: 검증 에이전트는 정답·시드 정보를 읽을 수 없다
-// (보정 기록·시드 카탈로그, 작업 지시서, 대화 기록, 사용자 답안 파일)
+// (보정 기록·시드 카탈로그, 작업 지시서, 교차검증 산출물, 다른 /verify 실행, 대화 기록, 사용자 답안 파일)
 const home = process.env.HOME || "";
+const runsDir = join(root, ".verify/runs");
+// 자기 실행 = 훅 입력 session_id로 prepare.mjs가 등록한 가장 최근 실행. 없으면 .verify/runs 전체를 막는다(fail closed)
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ownRun = (() => {
+  const sid = input.session_id;
+  if (typeof sid !== "string" || !UUID.test(sid)) return { name: null, why: "훅 입력에 session_id(UUID)가 없음" };
+  let reg;
+  try { reg = JSON.parse(readFileSync(join(sessionsDir, `${sid}.json`), "utf8")); } catch { return { name: null, why: `이 세션(${sid.slice(0, 8)})에 등록된 실행이 없음 — prepare.mjs --session 등록이 빠졌거나 다른 세션에서 실행함` }; }
+  const last = Array.isArray(reg?.runs) ? reg.runs[reg.runs.length - 1]?.run_dir : null;
+  const abs = typeof last === "string" ? resolve(root, last) : null;
+  if (!abs || dirname(abs) !== runsDir || !/^[\w.-]+$/.test(basename(abs))) return { name: null, why: `세션 등록 파일의 run_dir가 .verify/runs/<실행> 형식이 아님: ${String(last).slice(0, 80)}` };
+  return { name: basename(abs), why: null };
+})();
 // ~/.codex: GPT(Codex) 세션 기록에 심은 결함 계획이 남는다. 작업 트리(~/.codex/worktrees)만 허용
-const AGENT_LOGS = [join(home, ".claude/projects"), join(home, ".codex"), "/private/tmp/claude-", "/tmp/claude-"];
-const ALLOWED_UNDER_BLOCKED = [join(home, ".codex/worktrees")];
-const BLOCKED = [join(evalDir, "calibration"), join(root, ".verify/tasks"), ...AGENT_LOGS];
+const AGENT_LOGS = [
+  makeEntry(join(home, ".claude/projects"), "대화 기록"),
+  makeEntry(join(home, ".codex"), "Codex 기록", { except: ["worktrees"] }),
+  makeEntry("/private/tmp", "에이전트 임시 기록", { prefix: "claude-" }),
+  makeEntry("/tmp", "에이전트 임시 기록", { prefix: "claude-" }),
+];
+const PROTECTED = protectedDirs.map((d) => makeEntry(d, "실행 등록", { prefix: "" })); // 폴더 이름은 보여도 되고 안의 파일은 못 읽고 못 쓴다
+const ENTRIES = [
+  makeEntry(join(evalDir, "calibration"), "보정 자료"),
+  makeEntry(join(root, ".verify/tasks"), "작업 지시서"),
+  makeEntry(join(root, ".verify/crosscheck"), "교차검증 산출물"),
+  makeEntry(runsDir, ownRun.name ? "다른 /verify 실행" : `등록된 실행 없음: ${ownRun.why}`, { except: ownRun.name ? [ownRun.name] : [] }),
+  ...AGENT_LOGS, ...PROTECTED,
+];
 const BLOCKED_WORDS = /answer[-_]?key|blind[-_]?key|seed-catalog|seeds\.json/i;
-const isBlockedPath = (p) => {
-  if (!p) return false;
-  const abs = isAbsolute(p) ? p : resolve(input.cwd || root, p);
-  if (ALLOWED_UNDER_BLOCKED.some((a) => abs === a || abs.startsWith(a + "/"))) return BLOCKED_WORDS.test(p);
-  return BLOCKED.some((b) => abs === b || abs.startsWith(b.endsWith("/") || b.endsWith("-") ? b : b + "/")) || BLOCKED_WORDS.test(p);
-};
-// 검색 범위가 차단 디렉터리를 품는 상위(워크스페이스 루트·docs·docs/evaluation·홈)면 거부
-const SEARCH_ROOTS = [...new Set([root, join(root, "docs"), dirname(evalDir), evalDir, home, "/"])];
-const isTooBroad = (p) => {
-  const abs = resolve(input.cwd || root, p || ".");
-  return SEARCH_ROOTS.includes(abs.replace(/\/$/, "") || "/");
-};
-const denyBlind = (what) => deny(`${what} — 검증 에이전트는 보정·정답 자료와 대화 기록을 읽을 수 없음. 검색은 RUN_DIR/head·base, 레포, 문서 폴더처럼 구체 경로로 좁혀라`);
+const blind = createBlind({ root, home, cwd: input.cwd || root, entries: ENTRIES, words: BLOCKED_WORDS });
+const denyBlind = (what) => deny(`${what} — 검증 에이전트는 보정·정답 자료, 다른 실행 폴더, 대화 기록을 읽을 수 없음. 검색은 자기 RUN_DIR/head·base, 레포, 문서 폴더처럼 구체 경로로 좁혀라`);
 
-if (tool === "Read" && isBlockedPath(ti.file_path)) denyBlind(`읽기 차단: ${ti.file_path}`);
-if (tool === "Grep" || tool === "Glob") {
-  if (isBlockedPath(ti.path) || (tool === "Glob" && BLOCKED_WORDS.test(ti.pattern ?? ""))) denyBlind(`검색 차단: ${ti.path ?? ti.pattern}`);
-  if (isTooBroad(ti.path)) denyBlind(`검색 범위가 너무 넓음: ${ti.path ?? "(현재 디렉터리)"}`);
-}
+if (tool === "Read") { const why = blind.readHit(ti.file_path); if (why) denyBlind(why); }
+if (tool === "Grep") { const why = blind.grepToolHit(ti.path, ti.glob); if (why) denyBlind(why); }
+if (tool === "Glob") { const why = blind.globToolHit(ti.pattern, ti.path); if (why) denyBlind(why); }
 if (["Read", "Grep", "Glob"].includes(tool)) return;
 
 if (["Write", "Edit", "MultiEdit", "NotebookEdit"].includes(tool)) {
@@ -308,7 +324,7 @@ const WRITE_CMDS = {
 };
 const DEV_OK = (t) => ["/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"].includes(t) || t.startsWith("/dev/fd/");
 const checkTarget = (t, dyn, cwdUnknown) => {
-  if (dyn) return /^(\$\{?RUN_DIR\}?|\.verify)\//.test(t) && !t.includes("..") ? null : `대상 경로를 확인할 수 없는 쓰기 (${t})`;
+  if (dyn) return /^(\$\{?RUN_DIR\}?\/|\.verify\/(?!sessions(\/|$))[\w.-]+\/)/.test(t) && !t.includes("..") ? null : `대상 경로를 확인할 수 없는 쓰기 (${t})`;
   if (DEV_OK(t)) return null;
   if (cwdUnknown && !isAbsolute(t)) return `cd 뒤의 상대 경로라 쓰기 위치를 확인할 수 없음 (${t})`;
   return inside(t) ? null : `${WRITE_WHY} (${t})`;
@@ -438,18 +454,20 @@ function runsHit(src, depth = 0, cwdUnknown = false) {
 }
 
 const cmd = String(ti.command ?? "");
-const blockedFrag = new RegExp(`${reEsc(`${EVAL}/calibration`)}|\\.verify\\/tasks|\\.claude\\/projects|\\.codex\\/(?!worktrees)`);
+// 글자 판정(그물): 명령 글자 어디에든 차단 위치가 그대로 있으면 막는다. 인터프리터 코드 안의 경로도 이것만 잡는다
+const TEXT_BLOCKED = [...ENTRIES.filter((e) => !e.kids).map((e) => e.dir), "/private/tmp/claude-", "/tmp/claude-"];
+const blockedFrag = new RegExp(`${reEsc(`${EVAL}/calibration`)}|\\.verify\\/(tasks|crosscheck|sessions)|\\.claude\\/projects|\\.codex\\/(?!worktrees)`);
 const cmdNoWorktrees = cmd.split(join(home, ".codex/worktrees")).join("");
-if (BLOCKED.some((b) => cmdNoWorktrees.includes(b) || cmd.includes(relative(root, b) + "/") || cmd.includes(relative(root, b) + " ") || cmd.endsWith(relative(root, b))) || blockedFrag.test(cmd) || BLOCKED_WORDS.test(cmd)) {
+if (TEXT_BLOCKED.some((b) => cmdNoWorktrees.includes(b) || (b.startsWith(root + "/") && (cmd.includes(relative(root, b) + "/") || cmd.includes(relative(root, b) + " ") || cmd.endsWith(relative(root, b))))) || blockedFrag.test(cmd) || BLOCKED_WORDS.test(cmd)) {
   denyBlind(`명령 차단: ${cmd.slice(0, 120)}`);
 }
-// 재귀 검색이 워크스페이스 루트·docs 전체를 훑으면 차단 (보정 자료가 섞여 나옴)
-// grep은 -r·-R이 다른 옵션과 묶이거나(-rn) 뒤에 와도(-n -r), --recursive여도 재귀다
-if (/(?:^|[\s;&|(])(?:rg|ag|find|grep(?:\s+-[^\s-][^\s]*|\s+--[\w-]+(?:=\S*)?)*?\s+(?:-[a-zA-Z]*[rR][a-zA-Z]*|--(?:recursive|dereference-recursive)))(?=$|[\s;&|)])/.test(cmd)) {
-  const toks = cmd.split(/\s+/);
-  const broad = [".", "./", "..", "../", "docs", "docs/", ...[relative(root, dirname(evalDir)), EVAL].filter((d) => d && d !== ".").flatMap((d) => [d, d + "/"]), root, root + "/", "~", home];
-  if (toks.some((t) => broad.includes(t))) denyBlind(`넓은 재귀 검색 차단: ${cmd.slice(0, 120)}`);
+// 다른 실행 폴더 이름을 글자로 적은 명령
+for (const m of cmd.matchAll(/\.verify\/runs\/([^\s'"`;|&)<>/]*)/g)) {
+  if (m[1] && (!ownRun.name || m[1].toLowerCase() !== ownRun.name.toLowerCase())) denyBlind(`다른 /verify 실행 폴더를 가리킴(${ownRun.name ? "자기 실행 아님" : ownRun.why}): ${m[0].slice(0, 100)}`);
 }
+// 경로 판정: 안쪽·글롭·재귀 범위·워크스페이스 git 기록 (lib/blind-paths.mjs)
+const blindWhy = blind.bashHit(cmd);
+if (blindWhy) denyBlind(blindWhy);
 const why = runsHit(cmd);
 if (why) deny(`${why} 금지: ${cmd.slice(0, 160)}`);
 // 글자 단위 쓰기 대상 판정(기존). 위 판정이 못 읽은 경우(파싱 실패 등)의 안전망으로 남긴다
