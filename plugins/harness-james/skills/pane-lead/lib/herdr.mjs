@@ -63,6 +63,16 @@ export const paneSplit = async (pane, direction, { ratio, cwd, env = {}, focus =
       focus ? '--focus' : '--no-focus',
     ])
   ).pane
+/** New tab; returns { tab, root_pane }. */
+export const tabCreate = ({ label, cwd, env = {}, workspace, focus = false } = {}) =>
+  herdr([
+    'tab', 'create',
+    ...(workspace ? ['--workspace', workspace] : []),
+    ...(label ? ['--label', label] : []),
+    ...(cwd ? ['--cwd', cwd] : []),
+    ...Object.entries(env).flatMap(([k, v]) => ['--env', `${k}=${v}`]),
+    focus ? '--focus' : '--no-focus',
+  ])
 export const paneClose = (pane) => herdr(['pane', 'close', pane])
 export const paneRename = (pane, label) => herdr(['pane', 'rename', pane, label])
 

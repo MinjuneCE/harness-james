@@ -425,6 +425,57 @@ test('handover: a simulated PANE_LEAD_CTX_WINDOW is carried into the next main s
   assert.equal(JSON.parse(readFileSync(a2.args[a2.args.indexOf('--settings') + 1], 'utf8')).env.PANE_LEAD_CTX_WINDOW, undefined)
 })
 
+test('spawn: the sub pane gets the main\'s CLAUDE_CONFIG_DIR, so the sub runs on the same account', () => {
+  const w = world()
+  w.startMain()
+  const r = w.run(['spawn', 's1', '--brief', w.brief()], { env: { CLAUDE_CONFIG_DIR: '/x/.claude-alt' } })
+  assert.equal(r.ok, true, JSON.stringify(r))
+  assert.deepEqual(w.state.panes[r.sub.pane].env, ['CLAUDE_CONFIG_DIR=/x/.claude-alt'])
+})
+
+test('handover --tab --config-dir: next main in a new tab on that profile; takeover-done closes the old main, nothing to fill', () => {
+  const w = world()
+  w.startMain()
+  const doc = join(w.root, 'h.md')
+  writeFileSync(doc, 'x')
+  assert.match(w.run(['handover', '--doc', doc, '--config-dir', join(w.root, 'nope')]).error, /config dir not found/)
+  const dir = join(w.root, '.claude-alt')
+  mkdirSync(dir)
+  const h = w.run(['handover', '--doc', doc, '--tab', '계정B(t)', '--config-dir', dir])
+  assert.equal(h.ok, true, JSON.stringify(h))
+  assert.equal(h.next_main.config_dir, dir)
+  const tab = w.state.tabs[h.next_main.tab]
+  assert.equal(tab.label, '계정B(t)')
+  assert.deepEqual(tab.root, { pane: h.next_main.pane })
+  assert.deepEqual(w.state.panes[h.next_main.pane].env, [`CLAUDE_CONFIG_DIR=${dir}`])
+  assert.equal(w.state.panes[h.next_main.pane].cwd, w.root)
+  assert.equal(w.state.agents[h.next_main.pane].prompts[0], `${SKILL_CMD} takeover ${doc}`)
+  w.patch((s) => (s.agents['w9:p1'].status = 'idle'))
+  const t = w.run(['takeover-done', '--no-focus'], { pane: h.next_main.pane, env: { CLAUDE_CONFIG_DIR: dir } })
+  assert.equal(t.ok, true, JSON.stringify(t))
+  assert.equal(t.closed, 'w9:p1')
+  assert.equal(t.filled, null)
+  assert.equal(w.registry().main.pane, h.next_main.pane)
+  // Subs of the new main follow its profile.
+  const s = w.run(['spawn', 's1', '--brief', w.brief()], { pane: h.next_main.pane, env: { CLAUDE_CONFIG_DIR: dir } })
+  assert.equal(s.ok, true, JSON.stringify(s))
+  assert.deepEqual(w.state.panes[s.sub.pane].env, [`CLAUDE_CONFIG_DIR=${dir}`])
+})
+
+test('handover without --config-dir keeps the caller\'s profile; with none set the pane gets no env', () => {
+  const w = world()
+  w.startMain()
+  writeFileSync(join(w.root, 'h.md'), 'x')
+  const h = w.run(['handover', '--doc', join(w.root, 'h.md')], { env: { CLAUDE_CONFIG_DIR: '/x/.claude-alt' } })
+  assert.deepEqual(w.state.panes[h.next_main.pane].env, ['CLAUDE_CONFIG_DIR=/x/.claude-alt'])
+  const w2 = world()
+  w2.startMain()
+  writeFileSync(join(w2.root, 'h.md'), 'x')
+  const h2 = w2.run(['handover', '--doc', join(w2.root, 'h.md')])
+  assert.deepEqual(w2.state.panes[h2.next_main.pane].env, [])
+  assert.equal(h2.next_main.config_dir, undefined)
+})
+
 test('skillCommand: /<plugin>:pane-lead inside a plugin, /pane-lead otherwise', () => {
   const d = mkdtempSync(join(tmpdir(), 'pl-sc-'))
   const home = join(d, 'skills', 'pane-lead')

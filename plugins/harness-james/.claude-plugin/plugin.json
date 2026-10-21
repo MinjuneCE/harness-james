@@ -1,7 +1,7 @@
 {
   "name": "harness-james",
-  "version": "0.2.0",
-  "description": "프로젝트에 묶이지 않은 Claude Code 하네스: pane-lead(herdr 다중 pane 운영), skill-check(스킬 점검), verify(PR 전 코드 검증), verify-design(설계 검증) 스킬과 그 에이전트, push·PR 흐름 훅, verify 에이전트 가드.",
+  "version": "0.3.0",
+  "description": "프로젝트에 묶이지 않은 Claude Code 하네스: pane-lead(herdr 다중 pane 운영), skill-check(스킬 점검), verify(PR 전 코드 검증), verify-design(설계 검증) 스킬과 그 에이전트, push·PR 흐름 훅, herdr pane 계정 프로필 훅, verify 에이전트 가드.",
   "author": {
     "name": "james"
   }

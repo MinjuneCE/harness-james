@@ -100,6 +100,8 @@ if (g === 'pane') {
     if (!S.panes[p]) err('pane_not_found', p)
     const tab = tabOf(p)
     S.tabs[tab].root = remove(S.tabs[tab].root, p)
+    // Like herdr: closing a tab's last pane closes the tab.
+    if (!S.tabs[tab].root) delete S.tabs[tab]
     // Which pane inherits the tab-local focus is herdr's choice; tests pick it with S.closeFocus.
     S.tabFocus ??= {}
     if (S.tabFocus[tab] === p) S.tabFocus[tab] = S.closeFocus ?? null
@@ -109,6 +111,14 @@ if (g === 'pane') {
     out({ type: 'ok' })
   }
   if (c === 'rename') out({ type: 'ok' })
+}
+if (g === 'tab' && c === 'create') {
+  const tab = `w9:t${S.seq++}`
+  const id = `w9:p${S.seq++}`
+  S.tabs[tab] = { area: { ...Object.values(S.tabs)[0].area }, root: { pane: id }, label: flag('--label'), workspace: flag('--workspace') }
+  S.panes[id] = { env: flags('--env'), cwd: flag('--cwd') }
+  if (args.includes('--focus')) S.focused = id
+  out({ tab: { tab_id: tab, label: flag('--label') }, root_pane: { pane_id: id, tab_id: tab } })
 }
 if (g === 'agent') {
   if (c === 'list') out({ agents: Object.keys(S.agents).map(agentInfo) })

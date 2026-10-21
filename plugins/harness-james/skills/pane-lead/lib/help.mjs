@@ -10,11 +10,12 @@ Output: one JSON line ({"ok":true,...} | {"ok":false,"error","next"} exit 1; usa
   ctx [<name>|--self]                    context % of a sub/main or of the calling session
   status                                 lineage main/subs, state, ctx %, brief/result paths
   close <name> [--force]                 close a sub pane this lineage made
-  handover --doc <path>                  start the next main below this one and give it the doc
+  handover --doc <path> [--tab label]    start the next main below this one (or in a new tab) and give it the doc
   takeover-done [--no-focus]             (new main) close the previous main, take its place
 
 Every command but main reads the lineage from PANE_LEAD_PREFIX/PANE_LEAD_ROOT (set in the launch settings)
-or --prefix. \`pane-lead <command> --help\` for options.`
+or --prefix. Panes this CLI starts get the caller's CLAUDE_CONFIG_DIR, so subs run on the main's account.
+\`pane-lead <command> --help\` for options.`
 
 export const CMDS = {
   main: `main [--prefix p] [--prompt text] [--dry-run]
@@ -36,9 +37,12 @@ export const CMDS = {
   ctx: `ctx [<name>|--self]`,
   status: `status [--no-ctx]`,
   close: `close <name> [--force]   refuses while the sub is working unless --force`,
-  handover: `handover --doc <path> [--prompt text]
+  handover: `handover --doc <path> [--prompt text] [--tab label] [--config-dir dir]
   From the current main pane only. Splits it down, starts <p>-main-<n+1> (effort max, ctx hooks), submits
-  "/pane-lead takeover <doc>" and returns. Finish the turn afterwards; the new main runs takeover-done.`,
+  "/pane-lead takeover <doc>" and returns. Finish the turn afterwards; the new main runs takeover-done.
+  --tab opens the next main in a new tab with that label instead (no old area to fill).
+  --config-dir moves the lineage to another Claude account profile (e.g. ~/.claude-alt); the next main and
+  every sub it spawns run there. Without it the next main keeps the caller's CLAUDE_CONFIG_DIR.`,
   'takeover-done': `takeover-done [--no-focus] [--timeout ms]
   From the new main pane. Waits for the previous main to be idle/done (default 600000 ms), closes its pane,
   focuses the new main only when the user is viewing the main's tab (else "focus" says why it was left alone;

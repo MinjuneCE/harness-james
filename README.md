@@ -10,7 +10,7 @@ james가 쓰는 Claude Code 하네스를 묶은 플러그인 마켓플레이스�
 | | 스킬 `skill-check` + 에이전트 `skill-check-judge` | 스킬 폴더 하나를 규칙 검사와 rubric 판정으로 채점해 S~F 등급과 고칠 점을 알려 줘요. |
 | | 스킬 `verify` + 에이전트 `verify-{orchestrator,judge,refuter,explorer}` | 프로파일이 있는 레포의 브랜치·PR을 보안·성능·아키텍처·신뢰성·관측성·테스트·접근성 차원에서 채점해 BLOCK·REVIEW_REQUIRED·PASS를 판정해요(Opus 5.5 max). |
 | | 스킬 `verify-design` + 에이전트 `design-verify-{judge,refuter}` | 설계 문서 묶음을 rubric 59기준으로 검증해요. light(무료) · standard · deep(Workflow). |
-| | 훅 4개 | push·merge 확인, 보호 브랜치 직접 push 거부, PR 전 verify 게이트, verify 에이전트 가드(아래 "훅"). |
+| | 훅 5개 | push·merge 확인, 보호 브랜치 직접 push 거부, PR 전 verify 게이트, herdr pane 계정 프로필 확인, verify 에이전트 가드(아래 "훅"). |
 | `work-trace` | mod | 세션 오른쪽 패널에 작업 진행, 막힌 곳, 모델이 무엇을 왜 골랐는지를 실시간으로 보여 줘요. |
 | `context-band` | mod | 프롬프트 바로 위에 컨텍스트 사용량, 자동 압축까지 남은 양, 메모리 파일, 비용, 사용량 한도를 한 줄로 보여 줘요. |
 
@@ -49,6 +49,10 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 - `~/.local/bin/pane-lead`가 생겨요. `~/.local/bin`이 PATH에 있어야 해요(다른 폴더는 `--install <폴더>`).
 - 실행할 때마다 `~/.claude/plugins/installed_plugins.json`(`CLAUDE_CONFIG_DIR`을 쓰면 `$CLAUDE_CONFIG_DIR/plugins/…`)에서 user scope 설치를 먼저 찾아요. 업데이트해도 다시 설치할 필요가 없어요.
 - 쓰는 법: herdr의 빈 셸 pane에서 `pane-lead main --prefix <접두어>`. 메인 세션은 `/harness-james:pane-lead start <접두어>`로 시작해요.
+- Claude 계정 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR`):
+  - `CLAUDE_CONFIG_DIR=<프로필 폴더> pane-lead main --prefix <접두어>`로 띄워요. pane-lead가 띄우는 서브는 메인의 프로필을 이어받아요.
+  - 인계 때 `handover --config-dir <폴더>`는 다음 메인부터 다른 프로필로, `--tab <이름>`은 다음 메인을 새 탭에 띄워요.
+  - 플러그인 설치는 프로필마다 따로예요. 쓰는 프로필마다 harness-james를 설치해요.
 - 기록은 프로젝트 `.research/pane-lead/`와 `~/.local/state/pane-lead`에 남아요.
 
 ## 프로젝트에서 처음 쓰기
@@ -94,9 +98,10 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 | require-push-approval | 모든 레포 | 모든 `git push`와 `gh pr merge`에 사용자 확인을 받아요. settings의 `permissions.ask`가 따로 필요 없어요. |
 | require-pr-flow | 모든 레포 | 보호 브랜치(main·master·dev·develop·development·stg·stage·staging·prd·prod·production)로 직접 push하면 거부해요. |
 | require-verify-before-pr | verify 프로파일이 있는 레포만 | `gh pr create` 전에 지금 HEAD의 verify 리포트를 봐요. 없거나 BLOCK·REVIEW_REQUIRED면 확인을 받아요. 다른 레포에서는 조용해요. |
+| require-pane-account | `CLAUDE_CONFIG_DIR`을 쓰는 세션만 | `herdr pane split`·`tab create`·`workspace create`에 `--env CLAUDE_CONFIG_DIR=…`가 없으면 거부해요. herdr는 새 pane을 herdr 서버의 환경으로 띄워서, 그대로면 서브가 기본 계정으로 떠요. 값을 직접 준 명령과 원격 대상(`--machine`·`--remote`)은 통과해요. 기본 프로필 세션에서는 바로 끝나요. |
 | verify-guard | verify 에이전트만 | 훅 입력의 `agent_type`이 `harness-james:verify-*`일 때만 판정해요(쓰기 제한, 보정·정답 자료와 다른 실행 폴더를 경로 규칙으로 차단 — 재귀 검색·glob·git 기록 포함, 하위 에이전트 제한). /verify 1단계가 실행을 세션에 등록하고, 판정 에이전트는 그 세션의 실행 폴더만 읽어요. 다른 세션은 내장 모듈과 정규식 하나만 쓰고 바로 끝나요. |
 
-- 메시지는 "프로젝트 규칙:"으로 시작해요.
+- push 확인과 보호 브랜치 거부 메시지는 "프로젝트 규칙:"으로 시작해요.
 - 플러그인 에이전트에서는 frontmatter `hooks`가 돌지 않아서, verify-guard는 플러그인 `hooks/hooks.json`에 걸려 있어요.
 
 ## 알려진 점

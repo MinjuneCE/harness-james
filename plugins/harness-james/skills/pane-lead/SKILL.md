@@ -86,6 +86,9 @@ CLI는 `node "${CLAUDE_SKILL_DIR}/bin/pane-lead.mjs" <명령>`이에요. 아래�
 1. `pane-lead status`를 실행해요.
 2. `${CLAUDE_SKILL_DIR}/templates/handover.md` 양식으로 `<root>/.research/pane-lead/<p>/handover/main-<n>.md`를 써요(n = 지금 세대).
 3. `pane-lead handover --doc <그 파일>`: 메인 pane 아래에 다음 메인을 띄우고 `takeover <doc>`로 이 스킬을 불러요.
+   - 사용자가 다른 Claude 계정으로 옮기자고 하면 `--config-dir <프로필 폴더>`(예: `~/.claude-alt`)를 붙여요. 새 탭에 띄우라고 하면 `--tab "<탭 이름>"`을 붙여요.
+   - 새 메인과 그 메인이 띄우는 서브는 그 계정으로 떠요. 이전 메인이 띄운 서브는 닫을 때까지 이전 계정으로 돌아요. 대기, 승인, `send`는 herdr로 하므로 계정이 달라도 그대로 돼요.
+   - 플러그인 설치는 프로필마다 따로예요. 옮길 프로필에도 이 플러그인이 있어야 새 메인이 `takeover`를 불러요.
 4. 사용자에게 한 줄로 알리고("컨텍스트 N%라 <p>-main-<n+1>로 인계해요") 턴을 끝내요. 새 메인은 이 턴이 끝나야 인수를 마칠 수 있어요.
 
 보고는 사용자 화면에 보이는 응답이에요. 인계 알림만 남기고 턴을 끝내면 그 턴의 결과는 사용자에게 전해지지 않아요.
@@ -109,10 +112,10 @@ CLI는 `node "${CLAUDE_SKILL_DIR}/bin/pane-lead.mjs" <명령>`이에요. 아래�
 | `ctx [<name>\|--self]` | 컨텍스트 % |
 | `status [--no-ctx]` | 메인·서브 목록, 상태, ctx, 지시서, 결과 파일, `cap` |
 | `close <name> [--force]` | 이 계보 서브 pane을 닫아요 |
-| `handover --doc f [--prompt t]` | 다음 메인을 띄워요(현재 메인 pane에서만) |
+| `handover --doc f [--prompt t] [--tab 이름] [--config-dir d]` | 다음 메인을 띄워요(현재 메인 pane에서만). `--tab`은 새 탭에, `--config-dir`은 다른 계정 프로필로 |
 | `takeover-done [--no-focus] [--timeout ms]` | 새 메인이 이전 메인을 닫고 자리를 이어받아요 |
 
-`main [--prefix p]`는 사용자가 빈 셸 pane에서 메인을 띄울 때 쓰는 명령이에요. 메인 세션에서는 쓰지 않아요.
+`main [--prefix p]`는 사용자가 빈 셸 pane에서 메인을 띄울 때 쓰는 명령이에요. 메인 세션에서는 쓰지 않아요. 다른 계정 프로필로 띄우려면 `CLAUDE_CONFIG_DIR=<프로필 폴더> pane-lead main --prefix <p>`예요. pane-lead가 띄우는 pane은 부른 쪽의 `CLAUDE_CONFIG_DIR`을 이어받아서, 서브도 메인과 같은 계정으로 떠요.
 사용자 셸의 `pane-lead` 명령은 `bin/pane-lead-shim.mjs`예요. 설치 기록에서 지금 설치된 플러그인 버전을 찾아 이 CLI를 실행해요(`--install`로 `~/.local/bin`에 복사). 메인 세션에서는 쓰지 않아요.
 
 ## 실패할 때
