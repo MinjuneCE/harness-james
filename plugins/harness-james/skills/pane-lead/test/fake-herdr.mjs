@@ -74,6 +74,18 @@ const advance = (pane) => {
   } else a.status = 'done'
 }
 
+// Race stand-in: another pane-lead writes a pending entry while this one is splitting/creating its pane.
+if (S.race && ((args[0] === 'pane' && args[1] === 'split') || (args[0] === 'tab' && args[1] === 'create'))) {
+  const reg = JSON.parse(readFileSync(S.race.registry, 'utf8'))
+  if (S.race.main) reg.main = S.race.main
+  reg.pending = S.race.pending ?? null
+  writeFileSync(S.race.registry, JSON.stringify(reg))
+  if (S.race.pending) {
+    S.panes[S.race.pending.pane] = {}
+    S.tabs[Object.keys(S.tabs)[0]].root = { dir: 'down', ratio: 0.5, a: S.tabs[Object.keys(S.tabs)[0]].root, b: { pane: S.race.pending.pane } }
+  }
+  delete S.race
+}
 const [g, c] = args
 if (g === 'pane') {
   if (c === 'list') out({ panes: Object.keys(S.panes).map((p) => ({ pane_id: p, tab_id: tabOf(p), focused: S.focused === p, ...agentInfo(p) })) })
@@ -111,6 +123,13 @@ if (g === 'pane') {
     out({ type: 'ok' })
   }
   if (c === 'rename') out({ type: 'ok' })
+  if (c === 'process-info') {
+    // fgBusy: the next N reads show a shell still running its startup children.
+    const shell = { argv0: 'zsh', pid: 1 }
+    const busy = S.fgBusy > 0
+    if (busy) S.fgBusy--
+    out({ process_info: { pane_id: flag('--pane'), shell_pid: 1, foreground_process_group_id: 1, foreground_processes: busy ? [{ argv0: 'git', pid: 2 }, shell] : [shell] } })
+  }
 }
 if (g === 'tab' && c === 'create') {
   const tab = `w9:t${S.seq++}`
@@ -123,7 +142,12 @@ if (g === 'tab' && c === 'create') {
 if (g === 'agent') {
   if (c === 'list') out({ agents: Object.keys(S.agents).map(agentInfo) })
   if (c === 'get') out({ agent: agentInfo(resolve(args[2])) })
-  if (c === 'read') out(S.agents[resolve(args[2])].screen ?? '')
+  if (c === 'read') {
+    // startScreens: successive reads show these in turn (a screen drawn late), then the last one stays.
+    const a = S.agents[resolve(args[2])]
+    if (a.screens?.length) a.screen = a.screens.shift()
+    out(a.screen ?? '')
+  }
   if (c === 'rename') {
     S.agents[resolve(args[2])].name = args[3]
     out({ type: 'ok' })
@@ -136,8 +160,13 @@ if (g === 'agent') {
   if (c === 'start') {
     const pane = flag('--pane')
     if (!S.panes[pane]) err('pane_not_found', pane)
+    // paneBusy: the next N starts fail like a pane whose shell is not up yet.
+    if (S.paneBusy > 0) {
+      S.paneBusy--
+      err('agent_pane_busy', `agent target pane ${pane} is not an available shell`)
+    }
     const rest = args.slice(args.indexOf('--') + 1)
-    S.agents[pane] = { name: args[2], status: S.startStatus ?? 'idle', session: rest[rest.indexOf('--session-id') + 1], args: rest, cwd: S.panes[pane].cwd }
+    S.agents[pane] = { name: args[2], status: S.startStatus ?? 'idle', session: rest[rest.indexOf('--session-id') + 1], args: rest, cwd: S.panes[pane].cwd, screen: S.startScreen, screens: S.startScreens }
     if (S.agents[pane].status === 'blocked') err('agent_not_ready', 'blocked during startup')
     out({ agent: agentInfo(pane) })
   }

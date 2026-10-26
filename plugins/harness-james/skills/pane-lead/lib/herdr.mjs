@@ -1,7 +1,7 @@
 // Every herdr call goes through here. PANE_LEAD_HERDR swaps the binary (tests use a fake; a .mjs path runs under node).
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { fail } from './common.mjs'
+import { fail, sleep } from './common.mjs'
 
 const pexec = promisify(execFile)
 
@@ -74,6 +74,40 @@ export const tabCreate = ({ label, cwd, env = {}, workspace, focus = false } = {
     focus ? '--focus' : '--no-focus',
   ])
 export const paneClose = (pane) => herdr(['pane', 'close', pane])
+export const paneProcess = async (pane) => (await herdr(['pane', 'process-info', '--pane', pane])).process_info
+
+/** The pane's foreground is the bare shell (startup children such as git gone); null when herdr cannot tell. */
+export async function shellIdle(pane) {
+  try {
+    const p = await paneProcess(pane)
+    const fg = p?.foreground_processes
+    if (!Array.isArray(fg) || !p.shell_pid) return null
+    return fg.length === 1 && fg[0].pid === p.shell_pid
+  } catch {
+    return null
+  }
+}
+/** herdr's answer when the pane's shell is not up yet (or busy): agent_pane_busy, "… is not an available shell". */
+export const isPaneBusy = (e) => e?.herdrCode === 'agent_pane_busy' || /not an available shell/.test(e?.message ?? '')
+const SHELL_WAIT = () => Number(process.env.PANE_LEAD_SHELL_WAIT_MS) || 8000
+
+/**
+ * agent start on a pane we just made. Right after a split the shell is still starting (measured
+ * 10/23: git and zsh children in the foreground for ~10-30 ms), and herdr refuses with agent_pane_busy.
+ * Waits for a bare-shell foreground, retries agent_pane_busy every 0.5 s, about 8 s in all; then throws the last error.
+ */
+export async function agentStartWhenShell(name, pane, args) {
+  const deadline = Date.now() + SHELL_WAIT()
+  for (;;) {
+    while ((await shellIdle(pane)) === false && Date.now() < deadline) await sleep(100)
+    try {
+      return await agentStart(name, pane, args)
+    } catch (e) {
+      if (!isPaneBusy(e) || Date.now() >= deadline) throw e
+      await sleep(500)
+    }
+  }
+}
 export const paneRename = (pane, label) => herdr(['pane', 'rename', pane, label])
 
 /** Live agent hosted in `pane` (or undefined). */

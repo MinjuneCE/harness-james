@@ -14,7 +14,8 @@ Output: one JSON line ({"ok":true,...} | {"ok":false,"error","next"} exit 1; usa
   takeover-done [--no-focus]             (new main) close the previous main, take its place
 
 Every command but main reads the lineage from PANE_LEAD_PREFIX/PANE_LEAD_ROOT (set in the launch settings)
-or --prefix. Panes this CLI starts get the caller's CLAUDE_CONFIG_DIR, so subs run on the main's account.
+or --prefix. Panes this CLI starts get the caller's CLAUDE_CONFIG_DIR, so subs run on the main's account
+(~/.claude counts as the default profile: no CLAUDE_CONFIG_DIR).
 \`pane-lead <command> --help\` for options.`
 
 export const CMDS = {
@@ -42,7 +43,14 @@ export const CMDS = {
   "/pane-lead takeover <doc>" and returns. Finish the turn afterwards; the new main runs takeover-done.
   --tab opens the next main in a new tab with that label instead (no old area to fill).
   --config-dir moves the lineage to another Claude account profile (e.g. ~/.claude-alt); the next main and
-  every sub it spawns run there. Without it the next main keeps the caller's CLAUDE_CONFIG_DIR.`,
+  every sub it spawns run there. Without it the next main keeps the caller's CLAUDE_CONFIG_DIR.
+  --config-dir ~/.claude (realpath) is the default profile: the next main gets no CLAUDE_CONFIG_DIR. An inherited
+  CLAUDE_CONFIG_DIR=~/.claude is dropped the same way (also for spawn and main).
+  The new pane's screen is read after start: a theme picker or login screen (a profile without a login) stops it
+  before the prompt with error "login-required" (data: pane, config_dir); the new pane is closed, pending cleared.
+  "shell-busy": the new pane's shell never came up in ~8 s; the pane is closed, run handover again.
+  With <root>/.research/pane-lead/attach.json naming a command for this prefix, its output is appended to the
+  doc first as a "기계 계산" section (replaced on a rerun; failure = one-line note); "attach" reports it.`,
   'takeover-done': `takeover-done [--no-focus] [--timeout ms]
   From the new main pane. Waits for the previous main to be idle/done (default 600000 ms), closes its pane,
   focuses the new main only when the user is viewing the main's tab (else "focus" says why it was left alone;

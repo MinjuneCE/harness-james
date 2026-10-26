@@ -87,3 +87,14 @@ export function onceOption(d) {
 export function noOption(d) {
   return d?.options.find((o) => /^No\b/i.test(o.label))?.n
 }
+
+// First-run screens of a profile without a login (measured 2026-10-23, 2.1.309, empty CLAUDE_CONFIG_DIR):
+// the theme picker, then "Select login method:", then the OAuth "Paste code here if prompted". herdr reports
+// these as idle/ready, so a prompt sent there would land in the picker.
+const LOGIN = [/Choose the text style that looks best with your terminal/, /Select login method:/, /Paste code here if prompted/, /Browser didn.t open\?/]
+
+/** The matched login/onboarding line, or null. */
+export function loginScreen(screen) {
+  for (const l of String(screen ?? '').split('\n')) if (LOGIN.some((re) => re.test(l))) return l.trim()
+  return null
+}

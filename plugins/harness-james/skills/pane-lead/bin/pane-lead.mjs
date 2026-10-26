@@ -3,16 +3,18 @@
 // Output: one JSON line on stdout. Exit 0 ok / 1 failed / 2 usage.
 import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { BIN, CLI, SKILL_CMD, MAIN_EFFORT, MAX_SUBS, MODEL, PlError, absFrom, fail, now, parse, sleep, usage } from '../lib/common.mjs'
 import { TOP, CMDS } from '../lib/help.mjs'
 import * as H from '../lib/herdr.mjs'
 import { checkName, defaultPrefix, emptyRegistry, ensureExcluded, load, mustLoad, openSubs, prefixOf, rootOf, update } from '../lib/registry.mjs'
+import { accountDir } from '../lib/account.mjs'
 import { mainSettings, readExtra, settingsPath, subSettings, writeSettings } from '../lib/settings.mjs'
 import { planSplit } from '../lib/layout.mjs'
-import { noOption, onceOption, parseDialog } from '../lib/dialog.mjs'
+import { loginScreen, noOption, onceOption, parseDialog } from '../lib/dialog.mjs'
 import { resultSummary, screenTail } from '../lib/summary.mjs'
+import { attachToDoc } from '../lib/attach.mjs'
 
 const BOOLEAN = new Set(['pretty', 'help', 'self', 'always', 'esc', 'force', 'no-focus', 'no-ctx', 'dry-run', 'over-classifier'])
 const KNOWN = {
@@ -40,8 +42,12 @@ function claudeArgs({ name, sessionId, settings, effort, prompt }) {
 }
 
 // The Claude account follows the lineage: panes we start get the caller's CLAUDE_CONFIG_DIR (or a handover's
-// --config-dir). It has to be on the pane: claude reads it before any settings file.
-const profileEnv = (dir = process.env.CLAUDE_CONFIG_DIR) => (dir ? { CLAUDE_CONFIG_DIR: dir } : {})
+// --config-dir). It has to be on the pane: claude reads it before any settings file. ~/.claude counts as the
+// default profile and is left off (lib/account.mjs).
+const profileEnv = (dir = process.env.CLAUDE_CONFIG_DIR) => {
+  const d = accountDir(dir)
+  return d ? { CLAUDE_CONFIG_DIR: d } : {}
+}
 
 const startPrompt = (brief, result) =>
   `먼저 ${brief}를 읽고 작업하세요. 끝나면 ${result}에 결과를 남기세요(맨 위 15줄 이하 요약). 사용자에게 직접 묻지 말고, 결정이 필요한 건 결과 파일 '메인에게' 칸에 적어 주세요.`
@@ -155,7 +161,9 @@ async function cmdMain(f) {
   spawn(process.execPath, [BIN, '_name-main', '--prefix', prefix, '--pane', pane, '--name', m.name], { detached: true, stdio: 'ignore', env: { ...process.env, PANE_LEAD_ROOT: root } }).unref()
   // claude reads ^C itself (raw tty); a stray SIGINT/SIGTERM to the group must not kill this parent first.
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => {})
-  const r = spawnSync(process.env.PANE_LEAD_CLAUDE || 'claude', args, { stdio: 'inherit', cwd: root })
+  const env = { ...process.env }
+  if (!accountDir(env.CLAUDE_CONFIG_DIR)) delete env.CLAUDE_CONFIG_DIR
+  const r = spawnSync(process.env.PANE_LEAD_CLAUDE || 'claude', args, { stdio: 'inherit', cwd: root, env })
   process.exit(r.status ?? 1)
 }
 
@@ -210,8 +218,15 @@ async function cmdSpawn(pos, f) {
     await update(root, prefix, (r) => void Object.assign(r.subs[name], { pane: pane.pane_id, settings }))
     await H.paneRename(pane.pane_id, name).catch(() => {})
     try {
-      await H.agentStart(name, pane.pane_id, claudeArgs({ name, sessionId, settings }))
+      await H.agentStartWhenShell(name, pane.pane_id, claudeArgs({ name, sessionId, settings }))
     } catch (e) {
+      if (H.isPaneBusy(e)) {
+        // The pane never got a usable shell: close it so no labelled empty pane is left behind.
+        await H.paneClose(pane.pane_id).catch(() => {})
+        rmSync(settings, { force: true })
+        await drop('failed', { closedAt: now() })
+        throw fail(`${name} did not start: ${e.message} (retried for ${(Number(process.env.PANE_LEAD_SHELL_WAIT_MS) || 8000) / 1000} s)`, `pane ${pane.pane_id} was closed; run the same ${CLI} spawn again`, { pane: pane.pane_id, closed: true })
+      }
       if (e.herdrCode === 'agent_not_ready') {
         await drop('blocked-start')
         throw fail(`${name} is blocked during startup (trust or setup dialog)`, `herdr agent read ${name} --source visible; answer it, then ${CLI} send ${name} "<start prompt>"`, { pane: pane.pane_id })
@@ -407,6 +422,20 @@ async function cmdHandover(f) {
   if (reg.pending && (await liveOf(reg.pending))) throw fail(`handover to ${reg.pending.name} is already in progress`, `wait for it to run ${CLI} takeover-done`)
   const configDir = f['config-dir'] && absFrom(root, f['config-dir'])
   if (configDir && !existsSync(configDir)) throw fail(`config dir not found: ${configDir}`, 'create that profile first: start claude once with CLAUDE_CONFIG_DIR=<dir> and log in')
+  const env = profileEnv(configDir || undefined)
+  // Workspace attach (attach.json): appended before the next main starts, so its first read has it. Never blocks the handover.
+  const attach = await attachToDoc({ root, prefix, doc })
+  const next = await startNextMain({ prefix, root, reg, doc, env, tab: f.tab, workspace: process.env.HERDR_WORKSPACE_ID, prompt: f.prompt })
+  return { next_main: next, doc, ...(attach ? { attach } : {}), next: 'end this turn now; the new main runs takeover-done' }
+}
+
+/**
+ * The next main of a lineage: a pane below the current main (or a new tab), the pending entry, claude, then
+ * "<skill> takeover <doc>". A login or onboarding screen on the new pane stops it before the prompt: the pane is
+ * closed, pending cleared, error login-required.
+ */
+async function startNextMain({ prefix, root, reg, doc, env, tab, workspace, prompt }) {
+  const retry = `${CLI} handover`
   const generation = reg.main.generation + 1
   const name = `${prefix}-main-${generation}`
   const sessionId = randomUUID()
@@ -416,20 +445,59 @@ async function cmdHandover(f) {
   // Test only: a simulated window (to exercise the 75% handover) follows the lineage; unset in real use.
   if (process.env.PANE_LEAD_CTX_WINDOW) s.env.PANE_LEAD_CTX_WINDOW = process.env.PANE_LEAD_CTX_WINDOW
   const settings = writeSettings(root, prefix, name, s)
-  // --tab: the next main opens in a new tab, so there is no old area to fill (origin null → takeover-done filled null).
-  const env = profileEnv(configDir || undefined)
-  const pane = f.tab
-    ? (await H.tabCreate({ label: f.tab, cwd: root, env, workspace: process.env.HERDR_WORKSPACE_ID })).root_pane
+  // tab: the next main opens in a new tab, so there is no old area to fill (origin null → takeover-done filled null).
+  const pane = tab
+    ? (await H.tabCreate({ label: tab, cwd: root, env, workspace })).root_pane
     : await H.paneSplit(reg.main.pane, 'down', { ratio: 0.5, cwd: root, env })
-  await update(root, prefix, (r) => void (r.pending = { generation, name, pane: pane.pane_id, sessionId, doc, settings, from: r.main.pane, origin: f.tab ? null : origin, startedAt: now() }))
-  await H.paneRename(pane.pane_id, name).catch(() => {})
-  try {
-    await H.agentStart(name, pane.pane_id, claudeArgs({ name, sessionId, settings, effort: MAIN_EFFORT() }))
-  } catch (e) {
-    throw fail(`new main ${name} did not start: ${e.message}`, `herdr agent read ${pane.pane_id} --source visible; fix, then run handover again after closing ${pane.pane_id}`, { pane: pane.pane_id })
+  const configDir = env.CLAUDE_CONFIG_DIR ?? null
+  const dropNew = async () => {
+    await H.paneClose(pane.pane_id).catch(() => {})
+    rmSync(settings, { force: true })
   }
-  await H.agentPrompt(name, f.prompt ?? `${SKILL_CMD} takeover ${doc}`, { until: ['working', 'blocked'], timeout: 20000 }).catch(() => {})
-  return { next_main: { name, pane: pane.pane_id, ...(f.tab ? { tab: pane.tab_id } : {}), ...(env.CLAUDE_CONFIG_DIR ? { config_dir: env.CLAUDE_CONFIG_DIR } : {}) }, doc, next: 'end this turn now; the new main runs takeover-done' }
+  // Checked again under the lock: a handover that started after our checks owns the lineage now.
+  try {
+    await update(root, prefix, async (r) => {
+      if (r.main?.name !== reg.main.name) throw new PlError('pending', { next: `the lineage main is now ${r.main?.name}; ${CLI} status --prefix ${prefix}`, data: { main: r.main?.name } })
+      const seen = reg.pending
+      if (r.pending && (r.pending.pane !== seen?.pane || r.pending.startedAt !== seen?.startedAt) && (await paneAlive(r.pending.pane)))
+        throw new PlError('pending', { next: `handover to ${r.pending.name} (${r.pending.pane}) started meanwhile; wait for its takeover-done (${CLI} status --prefix ${prefix})`, data: { pending: r.pending.name, pane: r.pending.pane } })
+      r.pending = { generation, name, pane: pane.pane_id, sessionId, doc, settings, from: r.main.pane, origin: tab ? null : origin, startedAt: now() }
+    })
+  } catch (e) {
+    await dropNew()
+    throw e
+  }
+  await H.paneRename(pane.pane_id, name).catch(() => {})
+  let notReady
+  try {
+    await H.agentStartWhenShell(name, pane.pane_id, claudeArgs({ name, sessionId, settings, effort: MAIN_EFFORT() }))
+  } catch (e) {
+    if (H.isPaneBusy(e)) {
+      await dropNew()
+      await update(root, prefix, (r) => void (r.pending?.name === name && r.pending.pane === pane.pane_id && (r.pending = null)))
+      throw new PlError('shell-busy', { next: `${pane.pane_id} never got a usable shell (${e.message}); it was closed and ${reg.main.name} keeps the lineage. Run ${retry} again`, data: { pane: pane.pane_id, closed: true } })
+    }
+    if (e.herdrCode !== 'agent_not_ready') throw fail(`new main ${name} did not start: ${e.message}`, `herdr agent read ${pane.pane_id} --source visible; fix, then run ${retry} again after closing ${pane.pane_id}`, { pane: pane.pane_id })
+    notReady = e
+  }
+  // herdr reports the theme picker and the login method screen as idle/ready, so the screen decides. Read twice:
+  // the picker can be drawn a moment after start returns.
+  const read = () => H.agentRead(pane.pane_id, { source: 'visible' }).catch(() => '')
+  let login = loginScreen(await read())
+  await sleep(1000)
+  login ??= loginScreen(await read())
+  if (login) {
+    await dropNew()
+    await update(root, prefix, (r) => void (r.pending?.name === name && (r.pending = null)))
+    const who = configDir ? `CLAUDE_CONFIG_DIR=${configDir} claude` : 'claude (no CLAUDE_CONFIG_DIR)'
+    throw new PlError('login-required', {
+      next: `the profile has no login; ${pane.pane_id} was closed and ${reg.main.name} keeps the lineage. Log in once with \`${who}\` in a plain shell pane, then run ${retry} again`,
+      data: { pane: pane.pane_id, config_dir: configDir, screen: login },
+    })
+  }
+  if (notReady) throw fail(`new main ${name} did not start: ${notReady.message}`, `herdr agent read ${pane.pane_id} --source visible; fix, then run ${retry} again after closing ${pane.pane_id}`, { pane: pane.pane_id })
+  await H.agentPrompt(name, prompt ?? `${SKILL_CMD} takeover ${doc}`, { until: ['working', 'blocked'], timeout: 20000 }).catch(() => {})
+  return { name, pane: pane.pane_id, ...(tab ? { tab: pane.tab_id } : {}), ...(configDir ? { config_dir: configDir } : {}) }
 }
 
 async function cmdTakeover(f) {

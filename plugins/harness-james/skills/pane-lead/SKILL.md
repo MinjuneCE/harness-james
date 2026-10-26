@@ -86,7 +86,9 @@ CLI는 `node "${CLAUDE_SKILL_DIR}/bin/pane-lead.mjs" <명령>`이에요. 아래�
 1. `pane-lead status`를 실행해요.
 2. `${CLAUDE_SKILL_DIR}/templates/handover.md` 양식으로 `<root>/.research/pane-lead/<p>/handover/main-<n>.md`를 써요(n = 지금 세대).
 3. `pane-lead handover --doc <그 파일>`: 메인 pane 아래에 다음 메인을 띄우고 `takeover <doc>`로 이 스킬을 불러요.
-   - 사용자가 다른 Claude 계정으로 옮기자고 하면 `--config-dir <프로필 폴더>`(예: `~/.claude-alt`)를 붙여요. 새 탭에 띄우라고 하면 `--tab "<탭 이름>"`을 붙여요.
+   - 작업 공간에 `.research/pane-lead/attach.json`이 있으면 handover가 그 계보의 명령 출력을 문서 끝에 "기계 계산" 절로 붙여요(결과는 출력의 `attach`).
+   - 사용자가 다른 Claude 계정으로 옮기자고 하면 `--config-dir <프로필 폴더>`(예: `~/.claude-alt`)를 붙여요. 기본 프로필로는 `--config-dir ~/.claude`예요(새 메인에 `CLAUDE_CONFIG_DIR`를 붙이지 않아요). 새 탭에 띄우라고 하면 `--tab "<탭 이름>"`을 붙여요.
+   - 새 pane이 로그인·테마 고르기 화면이면(로그인이 없는 프로필) handover가 프롬프트를 보내지 않고 `login-required`로 멈춰요. 새 pane은 닫히고 이 메인이 계보를 계속 맡아요.
    - 새 메인과 그 메인이 띄우는 서브는 그 계정으로 떠요. 이전 메인이 띄운 서브는 닫을 때까지 이전 계정으로 돌아요. 대기, 승인, `send`는 herdr로 하므로 계정이 달라도 그대로 돼요.
    - 플러그인 설치는 프로필마다 따로예요. 옮길 프로필에도 이 플러그인이 있어야 새 메인이 `takeover`를 불러요.
 4. 사용자에게 한 줄로 알리고("컨텍스트 N%라 <p>-main-<n+1>로 인계해요") 턴을 끝내요. 새 메인은 이 턴이 끝나야 인수를 마칠 수 있어요.
@@ -129,6 +131,8 @@ CLI는 `node "${CLAUDE_SKILL_DIR}/bin/pane-lead.mjs" <명령>`이에요. 아래�
 | 서브 입력칸에 흐린 글자가 있어요 | 제출되지 않은 글자예요. 서브는 Claude Code의 다음 입력 예측을 꺼 두었지만(`promptSuggestionEnabled:false`), 사람이 친 글인지는 `herdr agent read <name> --format ansi`의 흐림 표시(`ESC[2m`)로 구분해요 |
 | 승인 직후에도 `blocked` | herdr가 1~2초 늦게 바뀌어요. 상태를 직접 읽지 말고 `wait`를 다시 걸어요 |
 | takeover-done "still working" | 이전 메인의 턴이 안 끝났어요. 잠시 뒤 다시 실행해요 |
+| handover `login-required` | 새 pane의 프로필에 로그인이 없어요(`data.config_dir`). 새 pane은 닫혔고 이전 메인이 그대로 맡아요. 사용자에게 알리고, 사용자가 빈 셸 pane에서 그 프로필로 로그인한 뒤 다시 실행해요 |
+| spawn·handover "not an available shell"(`shell-busy`) | 새 pane의 셸이 약 8초 동안 준비되지 않았어요. CLI가 그 pane을 닫았으니 같은 명령을 다시 실행해요 |
 | takeover-done `filled` ≠ true | `herdr pane layout`을 보고 `herdr pane resize`로 맞춰요 |
 | `/hooks`에 ctx 훅이 안 보여요 | `--settings`로 넣은 훅이라 목록에 안 나와요. 동작은 해요. 확인은 트랜스크립트의 `hook_additional_context`로 해요 |
 | 레지스트리 잠금 오류 | 30초 지난 잠금은 자동으로 풀려요. 다른 pane-lead 명령이 돌고 있지 않은데 계속되면 `<root>/.research/pane-lead/<p>/registry.json.lock` 폴더를 지워요 |
