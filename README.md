@@ -51,9 +51,11 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 - 쓰는 법: herdr의 빈 셸 pane에서 `pane-lead main --prefix <접두어>`. 메인 세션은 `/harness-james:pane-lead start <접두어>`로 시작해요.
 - Claude 계정 프로필을 여럿 쓰면(`CLAUDE_CONFIG_DIR`):
   - `CLAUDE_CONFIG_DIR=<프로필 폴더> pane-lead main --prefix <접두어>`로 띄워요. pane-lead가 띄우는 서브는 메인의 프로필을 이어받아요.
-  - 인계 때 `handover --config-dir <폴더>`는 다음 메인부터 다른 프로필로, `--tab <이름>`은 다음 메인을 새 탭에 띄워요.
+  - 인계 때 `handover --config-dir <폴더>`는 다음 메인부터 다른 프로필로, `--tab <이름>`은 다음 메인을 새 탭에 띄워요. 기본 프로필로 돌아갈 때는 `--config-dir ~/.claude`예요(`CLAUDE_CONFIG_DIR`를 붙이지 않고 띄워요).
+  - 새 프로필에 로그인이 없으면 handover는 새 pane의 로그인·테마 화면을 보고 `login-required`로 멈춰요. 그 프로필로 한 번 로그인한 뒤 다시 실행해요.
   - 플러그인 설치는 프로필마다 따로예요. 쓰는 프로필마다 harness-james를 설치해요.
 - 기록은 프로젝트 `.research/pane-lead/`와 `~/.local/state/pane-lead`에 남아요.
+- 선택: `.research/pane-lead/attach.json`에 계보별 명령을 적으면 handover가 그 출력을 인계 문서 끝 "기계 계산" 절로 붙여요. 형식은 `{ "handover": { "<접두어>": { "cmd": ["node", "x.mjs", "--doc", "{doc}"], "title": "…", "timeout": 10000 } } }`이고, `{prefix}`·`{doc}`·`{root}`가 채워져요. 실패해도 인계는 이어져요.
 
 ## 프로젝트에서 처음 쓰기
 
@@ -78,10 +80,13 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 1. 프로젝트(워크스페이스) 루트에 `docs/evaluation/profiles/<이름>.json`을 둬요.
    - 틀: `skills/verify/examples/profile.example.json`, 안내: `skills/verify/references/profile-guide.md`
 2. `/harness-james:verify <별칭> [브랜치|pr:N]`. 실행 한 번에 Opus 5.5 max 에이전트가 여러 개 떠서 비용이 커요.
+   - `--full`은 갈림점(PR base 또는 `default_base`와 head의 merge-base)부터 전체를 봐요. 장기 브랜치(프로파일 `long_lived_branches`)를 PR로 올리기 전에 써요. `--merge-ref <머지 커밋>`을 더하면 머지 결과와도 비교해요.
+   - 한도 등으로 멈추면 `--resume <run_id>`로 같은 실행을 이어 돌려요.
 3. `.verify/`는 `.gitignore`에 넣기를 권해요.
 4. 선택
    - 평가 폴더를 옮기려면 프로젝트 `.claude/settings.json`에 `"env": {"VERIFY_EVAL_DIR": "<경로>"}`.
-   - 프로젝트 전용 위험 CLI 차단은 `<평가 폴더>/config/guard.json`에 더해요.
+   - 프로젝트 전용 위험 CLI 차단(`commands`)과 판정 에이전트가 읽으면 안 되는 리뷰·분석 기록(`blind`)은 `<평가 폴더>/config/guard.json`에 더해요.
+   - diff 밖 신호 도구(도달성·대체 장부·복제본·피처맵)는 플러그인에 없어요. 프로젝트가 준비하면 `VERIFY_SIGNAL_BIN`·`VERIFY_FM_BIN`으로 위치를 알려 줘요. 프로파일에 `ledgers`·`dependents`·`feature_map`이 있거나 Gradle 레포인데 도구가 없으면 경고만 남기고 검증은 계속돼요(안내 `references/profile-guide.md` "diff 밖 신호 도구").
    - 플랫폼 검사 도구는 프로파일 `tools[]`에 `kind: "module"`로 더해요.
    - framework·scoring·rubrics는 플러그인 기본값을 쓰고, 프로젝트 평가 폴더에 같은 파일이 있으면 그쪽이 우선이에요.
 
@@ -97,9 +102,9 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 |---|---|---|
 | require-push-approval | 모든 레포 | 모든 `git push`와 `gh pr merge`에 사용자 확인을 받아요. settings의 `permissions.ask`가 따로 필요 없어요. |
 | require-pr-flow | 모든 레포 | 보호 브랜치(main·master·dev·develop·development·stg·stage·staging·prd·prod·production)로 직접 push하면 거부해요. |
-| require-verify-before-pr | verify 프로파일이 있는 레포만 | `gh pr create` 전에 지금 HEAD의 verify 리포트를 봐요. 없거나 BLOCK·REVIEW_REQUIRED면 확인을 받아요. 다른 레포에서는 조용해요. |
+| require-verify-before-pr | verify 프로파일이 있는 레포만 | `gh pr create` 전에 지금 HEAD의 verify 리포트를 봐요. 없거나 BLOCK·REVIEW_REQUIRED면 확인을 받아요. 장기 브랜치(`long_lived_branches`) PR은 갈림점 기준 `--full` 리포트가 있어야 넘어가요. 확인 사유에 어느 검증 범위에도 안 든 커밋 수를 붙여요. worktree·다른 곳의 clone에서도 레포를 찾아요. 다른 레포에서는 조용해요. |
 | require-pane-account | `CLAUDE_CONFIG_DIR`을 쓰는 세션만 | `herdr pane split`·`tab create`·`workspace create`에 `--env CLAUDE_CONFIG_DIR=…`가 없으면 거부해요. herdr는 새 pane을 herdr 서버의 환경으로 띄워서, 그대로면 서브가 기본 계정으로 떠요. 값을 직접 준 명령과 원격 대상(`--machine`·`--remote`)은 통과해요. 기본 프로필 세션에서는 바로 끝나요. |
-| verify-guard | verify 에이전트만 | 훅 입력의 `agent_type`이 `harness-james:verify-*`일 때만 판정해요(쓰기 제한, 보정·정답 자료와 다른 실행 폴더를 경로 규칙으로 차단 — 재귀 검색·glob·git 기록 포함, 하위 에이전트 제한). /verify 1단계가 실행을 세션에 등록하고, 판정 에이전트는 그 세션의 실행 폴더만 읽어요. 다른 세션은 내장 모듈과 정규식 하나만 쓰고 바로 끝나요. |
+| verify-guard | verify 에이전트만 | 훅 입력의 `agent_type`이 `harness-james:verify-*`일 때만 판정해요(쓰기 제한, 보정·정답 자료와 다른 실행 폴더, 프로젝트가 `guard.json` `blind`로 정한 기록을 경로 규칙으로 차단 — 재귀 검색·glob·git 기록 포함, 하위 에이전트 제한). /verify 1단계가 실행을 세션에 등록하고, 판정 에이전트는 그 세션의 실행 폴더만 읽어요. 다른 세션은 내장 모듈과 정규식 하나만 쓰고 바로 끝나요. |
 
 - push 확인과 보호 브랜치 거부 메시지는 "프로젝트 규칙:"으로 시작해요.
 - 플러그인 에이전트에서는 frontmatter `hooks`가 돌지 않아서, verify-guard는 플러그인 `hooks/hooks.json`에 걸려 있어요.
