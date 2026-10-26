@@ -48,6 +48,25 @@ export const DENY = {
     "P=@ROOT/.verify/runs/@OTHER; cat $P/judgments/OPS.json",
     "for d in @ROOT/.verify/runs/*/; do cat \"$d/judgments/SEC.json\"; done",
   ],
+  // Project blind paths (guard.json "blind"): notes that name the known defects of the branch under review.
+  // The test workspace's guard.json blocks notes/review.md, notes/gap-* and notes/briefs/.
+  "project-blind": [
+    "cat notes/review.md",
+    "cat notes/gap-proposal.md",
+    "cat notes/GAP-gates.md",
+    "head -50 notes/gap*.md",
+    "grep -n D-1 notes/*",
+    "grep -rn knownDefect notes",
+    "cat notes/briefs/common.md",
+    "ls notes/briefs",
+    "cd notes && cat gap-trace.md",
+    ["Read", { file_path: "@ROOT/notes/gap-gates.md" }],
+    ["Read", { file_path: "@ROOT/notes/review.md" }],
+    ["Grep", { pattern: "D-1", path: "@ROOT/notes" }],
+    ["Grep", { pattern: "D-1", path: "@ROOT/notes", glob: "gap-*.md" }],
+    ["Glob", { pattern: "notes/gap-*.md" }],
+    ["Glob", { pattern: "**/review.md" }],
+  ],
   // Quoting, variables, braces, case, xargs, substitutions.
   "split-and-computed": [
     "cat docs/evaluation/cal''ibration/README.md",
@@ -209,6 +228,10 @@ export const PASS = [
   "cat docs/evaluation/rubrics/SEC.md",
   "cat docs/evaluation/framework.md docs/evaluation/profiles/demo.json",
   "node skills/verify/scripts/score.mjs .verify/runs/@OWN --check-judgment SEC",
+  // Project blind paths: other notes stay readable, blocked names are visible.
+  "cat notes/other.md",
+  "ls notes",
+  ["Read", { file_path: "@ROOT/notes/other.md" }],
   // Names only.
   "ls docs/evaluation",
   "ls -la docs/evaluation/",

@@ -81,7 +81,7 @@ export const gitIn = (repo, ...args) =>
 
 export function cleanEnv(extra = {}) {
   const env = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
-  for (const k of ["VERIFY_EVAL_DIR", "VERIFY_WORKSPACE", "CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"]) delete env[k];
+  for (const k of ["VERIFY_EVAL_DIR", "VERIFY_WORKSPACE", "VERIFY_SIGNAL_BIN", "VERIFY_FM_BIN", "VERIFY_REACH_CACHE", "CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"]) delete env[k];
   return { ...env, ...extra };
 }
 

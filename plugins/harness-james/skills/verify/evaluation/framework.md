@@ -1,6 +1,6 @@
 # PR 검증 프레임워크
 
-- 버전: 2.0.0 (2026-10-13)
+- 버전: 2.1.0 (2026-10-23)
 - 대상: 모든 레포. 레포마다 프로파일 하나를 둔다. 레포 성격(`repo.traits`: `server`·`client`)과 차원 가중치가 어떤 차원·기준을 적용할지 정한다
 - 수치 파라미터: [`config/scoring.json`](config/scoring.json) · 기준 본문: [`rubrics/`](rubrics/) · 레포별 설정: 프로젝트 평가 폴더의 `profiles/`(기본 `docs/evaluation/profiles/`, 작성 안내 [`../references/profile-guide.md`](../references/profile-guide.md))
 - 실행: `/verify` 스킬 (harness-james 플러그인 `skills/verify/`)
@@ -136,6 +136,25 @@ PR diff ─┬─ 자동 신호 (프로파일 도구, 비밀값 스캔)         
 
 같은 기준에서 근거 위치가 겹치는(같은 파일·같은 side, ±`origin_line_tolerance`줄) 감점 finding이 여럿이면 **점수가 가장 높은 하나만** 감점한다. 동점이면 판정 > 도구 > 규칙 순으로 남긴다. 나머지는 리포트 "중복 병합"에 표시한다. 다른 기준끼리는 병합하지 않는다. 한 문제를 여러 기준에 올리지 않는 것은 판정 에이전트의 책임이다(2장).
 
+### 3.7 diff 밖 결정적 신호와 검증 범위
+
+diff만 보면 "이 변경 때문에 바뀌었어야 하는데 diff 밖에 남은 것"이 보이지 않는다(부르는 곳이 사라진 정의, 설계가 지운다고 한 기호, 다른 레포 복제본, 문서 줄 참조). `prepare.mjs`는 갈림점 기준으로 결정적 도구를 돌려 그 사실을 판정 자료로 붙인다.
+
+- **갈림점**: PR base(PR 대상) 또는 프로파일 `default_base`와 head의 merge-base.
+- **두 모드**
+  - 증분(기본): 판정은 `--base`부터의 diff를 본다. 신호는 갈림점 기준으로 한 번 더 돌고 리포트 "증분 범위 밖 누적 신호"에 둔다.
+  - 전체(`--full`): base가 갈림점이다. 신호는 리포트 "결정적 신호"에 둔다. `--merge-ref`를 주면 머지 결과와의 비교도 돈다.
+- **도구**: 도달성(갈림점에서 불렸는데 head에서 호출 0이 된 정의, 던지는 곳 없는 예외의 핸들러, 시험만 부르는 public), 대체 장부(프로파일 `ledgers`: 지운다·남긴다·이름 바꾼다 행과 문서 줄 참조), 복제본(프로파일 `dependents`: 원천이 바뀌었는데 복제본이 그대로), 피처맵(프로파일 `feature_map`: 기능 문서가 코드보다 낡음). 결과는 `RUN_DIR/signals/`(도구별 JSON과 `summary.md`)에 둔다. diff가 원천을 건드리면 복제본 사본을 `RUN_DIR/replicas/`에 둔다.
+  - 이 도구들은 프로젝트가 준비한다(플러그인에 들어 있지 않다). 위치는 환경 변수로 준다: `VERIFY_SIGNAL_BIN`(`reach.mjs`·`ledger-check.mjs`·`co-change.mjs`가 있는 폴더), `VERIFY_FM_BIN`(`fm-check.mjs`가 있는 폴더). 도구마다 신호 JSON v1(`{version: 1, tool, status, note, items[]}`, 항목은 `severity`·`kind`·`symbol`·`message`·`head`·`base`·`docs`)을 `--json <파일>`에 쓴다.
+  - 도달성은 Gradle 레포(head 트리에 `build.gradle`·`gradlew`)에서만, 대체 장부·복제본·피처맵은 프로파일에 그 필드가 있을 때만 돈다. 그 밖이면 `skipped`다.
+- **점수**: 신호는 점수에 들어가지 않고 판정 범위도 줄이지 않는다. 판정 에이전트가 신호를 코드로 확인해 finding으로 쓰면 그 finding만 3.4의 출처 규칙대로 센다. base 쪽 근거(지워진 호출 줄)는 diff의 삭제 줄이라 `introduced`로 셀 수 있다.
+- **도구 실패·미설정**: 실행을 멈추지 않는다. 돌아야 하는 도구가 실패하거나 위치가 설정되지 않았거나 파일이 없으면 `status: error`와 경고로 남고, 그 신호 없이 판정한다.
+- **프로파일 점검**: 시작할 때 head 트리에서 아무 파일도 잡지 않는 구조와, 어느 구조에도 안 걸린 동작 변경 파일(프로파일 `coverage_ignore` 제외)을 경고로 남긴다.
+- **검증 범위 장부**: 리포트 index에 실행마다 `mode`·`base_sha`(diff의 merge-base)·`fork_point`를, 레포마다 `ranges[]`(`base`·`head`·`run_id`·`mode`)를 쌓는다. PR 게이트는 이것으로 두 가지를 본다.
+  - 프로파일 `long_lived_branches`의 브랜치에서 여는 PR은 head SHA에 `mode: full`이고 `base_sha` = merge-base(origin/<PR base>, head)인 리포트가 있어야 지금 규칙(PASS면 통과)으로 넘어간다.
+  - 모든 PR의 승인 사유에 PR base..head 중 어느 범위에도 안 든 커밋 수를 적는다(rebase로 SHA가 바뀐 커밋은 patch-id로 맞춘다).
+- **이어 돌리기**: 전체 모드는 크다. 한도 등으로 멈추면 `--resume <run_id>`가 같은 실행 폴더를 세션에 다시 등록하고, 끝난 단계는 건너뛴다.
+
 ---
 
 ## 4. 점수 산식
@@ -238,13 +257,13 @@ PR 생성(`gh pr create`) 시 훅이 현재 HEAD의 리포트를 확인한다. P
 | 단계 | 수행자 | 산출물 |
 |---|---|---|
 | 0. 사전 점검 | `prepare.mjs` | 모델·effort를 덮어쓰는 환경변수(`CLAUDE_CODE_EFFORT_LEVEL`, `CLAUDE_CODE_SUBAGENT_MODEL(+_FORCE)`, `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`)가 정책과 다르면 중단 |
-| 1. 준비 | `prepare.mjs` | 대상 해석(브랜치/SHA/PR), base·head 트리 추출(`git archive`, 소스 레포 작업트리는 건드리지 않음), diff, 구조 매핑, 자동 신호 |
+| 1. 준비 | `prepare.mjs` | 대상 해석(브랜치/SHA/PR), base·head 트리 추출(`git archive`, 소스 레포 작업트리는 건드리지 않음), diff, 구조 매핑, 자동 신호, 갈림점 기준 diff 밖 결정적 신호(3.7) |
 | 2. 탐색 (필요 시) | `verify-explorer` | 호출 관계, 관련 스펙·설계 원칙 조항, 영향 범위, base 트리의 기존 상태 |
 | 3. 판정 | `verify-judge` × 적용 차원 수 | 차원별 finding JSON + 기준별 평가 상태 |
 | 4. 반증 | `verify-refuter` | high 이상 finding의 판정: `upheld` / `downgraded` / `rejected` / `uncertain` |
 | 5. 채점 | `score.mjs` | 점수, 판정, 트리거 |
 | 6. 검토 패킷 | `verify-orchestrator` | 트리거별 패킷 |
-| 7. 리포트 | `report.mjs` | `reports/<repo>/<날짜>-<브랜치>-<sha7>.md` + `.json`, `reports/<repo>/index.json` |
+| 7. 리포트 | `report.mjs` | `reports/<repo>/<날짜>-<브랜치>-<sha7>.md` + `.json`, `reports/<repo>/index.json`(실행별 모드·base·갈림점, 검증 범위 `ranges[]`) |
 
 **모델 정책**: 2–4, 6단계와 이를 지휘하는 오케스트레이터는 모두 `claude-opus-5-5`, effort `max`로 실행한다. 에이전트 정의 파일(플러그인 `agents/verify-*.md`)에서 모델과 effort를 고정한다. 각 에이전트는 결과에 자기 모델 ID를 기록하고, `score.mjs`는 이 값이 다르면 평가 불완전으로 처리한다. 메인 세션은 스킬을 호출만 하고 판정에 관여하지 않는다.
 
@@ -261,4 +280,5 @@ PR 생성(`gh pr create`) 시 훅이 현재 HEAD의 리포트를 확인한다. P
 
 ### 변경 기록
 
+- 2.1.0 (2026-10-23): 3.7 diff 밖 결정적 신호와 검증 범위를 더함. 전체 모드(`--full`), 갈림점 기준 신호(점수 밖 자료), 프로파일 `long_lived_branches`·`ledgers`·`dependents`·`feature_map`·`coverage_ignore`, index 검증 범위 장부, 장기 브랜치 PR 게이트, 이어 돌리기. 점수 산식·판정 규칙·rubric은 그대로.
 - 2.0.0 (2026-10-13): rubric·프로파일 2.0.0에 맞춰 일반화. 레포 이름·경로·벤더 서술을 일반 개념으로 바꿈. 차원 표를 서버·클라이언트 성격 기준으로 바꿈. 기준 적용을 "적용" 열(`공통`·`서버`·`클라이언트`)과 프로파일 `repo.traits`로 정함. 프로파일 `known_debt`를 없애고 기존 부채는 base 트리 대조로 판단. rubric 자동 규칙과 프로파일 `rules`·`rule_overrides`·`disabled_rules`를 없애고 자동 신호를 도구·비밀값 스캔으로 한정. "BF 시즌 모드"를 "피크 시즌 모드"로 이름만 바꿈(동작·산식 동일). 점수 산식·판정 규칙·임계값은 그대로.

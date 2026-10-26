@@ -1,7 +1,7 @@
 ---
 name: verify
 description: PR 전 코드 검증. 레포 프로파일(docs/evaluation/profiles/*.json)이 있는 레포의 브랜치나 PR을 보안·성능(BF)·아키텍처·신뢰성·관측성·테스트·접근성 차원에서 Opus 5.5 max로 정량 채점하고 BLOCK·REVIEW_REQUIRED·PASS를 판정해 리포트를 남긴다. 실행 비용이 크므로 사용자가 PR 전 검증이나 /verify를 명시적으로 요청할 때만 쓴다.
-argument-hint: "<레포 별칭> [브랜치|SHA|pr:N] [--base <ref>] [--season bf|off]"
+argument-hint: "<레포 별칭> [브랜치|SHA|pr:N] [--base <ref>] [--full [--merge-ref <ref>]] [--resume <run_id>] [--season bf|off]"
 context: fork
 agent: harness-james:verify-orchestrator
 background: true
@@ -33,8 +33,11 @@ VERIFY_ARGS
 
 - 종료 코드 2: 세션 id를 받지 못했거나, 사전 점검(모델 정책)·대상 해석에 실패한 것이다. 출력된 오류를 그대로 보고하고 끝낸다.
 - 종료 코드 3: base 대비 변경이 없다. "검증할 변경 없음"과 대상·base를 보고하고 끝낸다.
-- 성공하면 첫 줄 `RUN_DIR=...`에서 실행 디렉터리를 얻는다(이하 `RUN_DIR`). 출력 요약(변경 규모, 핵심 구조, 자동 신호, 경고)을 기억해 둔다.
+- 성공하면 첫 줄 `RUN_DIR=...`에서 실행 디렉터리를 얻는다(이하 `RUN_DIR`). 출력 요약(변경 규모, 핵심 구조, 자동 신호, 모드·갈림점, diff 밖 신호, 경고)을 기억해 둔다.
 - `RUN_DIR/context.json`을 읽고 적용 차원(`dimensions[].id`), 건드린 핵심 구조(`structures[]` 중 `touched`), 자동 신호 수를 확인한다.
+- `--full`은 전체 모드다. base는 갈림점(PR base 또는 프로파일 `default_base`와 head의 merge-base)이다. `--merge-ref`를 주면 머지 결과와 비교하는 신호도 돈다. `--merge-ref`에는 충돌을 푼 머지 커밋(이 레포에 있는 커밋)을 준다. `merge-tree` 결과를 그대로 주면 충돌 덩어리 밖의 상대 쪽 줄이 안 보여 신호가 빠진다. 머지 결과가 컴파일되지 않으면 그 신호는 이름 수준으로 낮춰지고 `note`에 남는다.
+- 모드와 상관없이 prepare가 갈림점 기준 결정적 신호(도달성·대체 장부·복제본·피처맵)를 돌려 `RUN_DIR/signals/`에 둔다. 이 도구들은 프로젝트가 준비하고 `VERIFY_SIGNAL_BIN`·`VERIFY_FM_BIN`으로 위치를 알려 준다(framework 3.7). 도구가 없거나 실패해도 실행은 이어지고 경고로 남는다. 신호는 판정 범위를 줄이지 않는다.
+- `--resume <run_id>`는 멈춘 실행을 이어 돌린다. prepare는 새 실행 폴더를 만들지 않고, 그 실행을 이 세션에 다시 등록한 뒤 "끝난 단계"(형식 점검을 통과한 차원, 결과가 있는 반증 묶음, 채점·패킷 여부)를 출력한다. 재개면 아래 단계에서 끝난 것은 건너뛴다.
 
 ## 2. 영향 지도 (조건부)
 
@@ -49,7 +52,7 @@ diff가 커서 판정 에이전트 6–7개가 같은 탐색을 반복할 것 �
 
 ## 3. 판정 (병렬)
 
-적용 차원마다 `harness-james:verify-judge`를 **한 메시지에서 동시에** 띄운다. 프롬프트:
+적용 차원마다 `harness-james:verify-judge`를 **한 메시지에서 동시에** 띄운다. 재개면 형식 점검을 통과한 차원은 띄우지 않는다. 프롬프트:
 
 > RUN_DIR=<RUN_DIR> DIMENSION=<차원>. 네 시스템 프롬프트의 절차대로 판정하고 `RUN_DIR/judgments/<차원>.json`을 작성한 뒤 형식 점검까지 마쳐라. `RUN_DIR/explore/impact.md`가 있으면 참고하라.
 
@@ -69,6 +72,7 @@ node "${CLAUDE_SKILL_DIR}/scripts/score.mjs" <RUN_DIR> --refute-chunks
 
 스크립트가 반증 대상을 6개씩 `RUN_DIR/refutation-targets/<CHUNK>.json`에 쓰고 `CHUNK=<이름> n건`을 한 줄씩 출력한다. 묶음 파일은 직접 쓰거나 고치지 않는다.
 
+- 재개인데 반증 묶음이 이미 나뉘어 있으면 `--refute-chunks`를 다시 돌리지 않고, 결과가 없는 묶음만 아래처럼 띄운다.
 - "반증 대상 없음"이면 이 단계를 건너뛴다.
 - 아니면 출력된 CHUNK마다 `harness-james:verify-refuter`를 한 메시지에서 동시에 띄운다. 프롬프트:
 
@@ -146,7 +150,8 @@ node "${CLAUDE_SKILL_DIR}/scripts/report.mjs" <RUN_DIR>
 - [S-svc.payment] … 영향도 76 ≥ 50 — 한 줄 요지
 
 리포트: docs/evaluation/reports/…
-실행 메모: 재시도·누락·경고(있을 때만)
+diff 밖 신호: <전체 모드면 "결정적 신호", 증분이면 "누적 신호"> FAIL a · WARN b (도구 실패가 있으면 그 이름)
+실행 메모: 재시도·재개·누락·경고(있을 때만)
 ```
 
 ## 스크립트 테스트

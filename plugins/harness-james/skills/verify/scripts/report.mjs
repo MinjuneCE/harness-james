@@ -61,6 +61,7 @@ P(`| 판정 | **${ICON[sc.gate]}** |`);
 P(`| 종합 품질 | **${fmt(sc.overall.score)}** / 100 (차단선 ${sc.overall.floor}) |`);
 P(`| 대상 | \`${t.branch ?? t.ref}\` @ \`${short(t.sha)}\`${t.pr ? ` · PR [#${t.pr.number}](${t.pr.url}) ${esc(t.pr.title)}` : ""} |`);
 P(`| base | \`${b.ref}\` @ \`${short(b.sha)}\` (merge-base \`${short(b.merge_base)}\`) |`);
+P(`| 모드 | ${ctx.mode === "full" ? "전체" : "증분"}${ctx.fork_point ? ` · 갈림점 \`${short(ctx.fork_point)}\`${ctx.fork_point === b.merge_base ? " (= merge-base)" : ""}` : ""} |`);
 P(`| 변경 | 파일 ${ctx.diff.totals.files}개 · +${ctx.diff.totals.added} −${ctx.diff.totals.removed} · 동작 변경 ${ctx.diff.totals.behavioral}줄 |`);
 P(`| 실행 | ${stamp.human} · \`${ctx.run_id}\` |`);
 P(`| 시즌 모드 | ${sc.season.active ? `ON (${sc.season.label}) — 임계값 ×${scoring.season.review_threshold_factor}, 차단선 +${scoring.season.floor_add}` : "off"} |`);
@@ -166,6 +167,31 @@ P(`- 규칙 finding ${ctx.signals.rule_findings.length}건, 도구 finding ${ctx
 for (const r of ctx.signals.tool_runs) P(`- ${r.tool}: ${r.status}${r.note ? ` (${esc(r.note)})` : ""}${r.head_offenses !== null && r.head_offenses !== undefined ? ` · 오프펜스 base ${r.base_offenses} → head ${r.head_offenses}, 변경 파일 신규 ${r.introduced}` : ""}${r.unmapped && Object.keys(r.unmapped).length ? ` · 기준 미매핑 ${Object.entries(r.unmapped).map(([k, v]) => `${k} ${v}`).join(", ")}` : ""}`);
 for (const w of ctx.warnings) P(`- ⚠ ${esc(w)}`);
 P("");
+
+// diff 밖 결정적 신호: 전체 모드는 판정 자료, 증분 모드는 누적 범위 info. 둘 다 점수에 넣지 않는다
+const os = ctx.outside_signals;
+if (os) {
+  const SEVS = ["FAIL", "WARN", "INFO"];
+  P(ctx.mode === "full" ? "## 결정적 신호" : "## 증분 범위 밖 누적 신호", "");
+  P(`갈림점 \`${short(os.base)}\`..\`${short(t.sha)}\` 기준 · 점수에 넣지 않음 · 도구 시간 ${(os.elapsed_ms / 1000).toFixed(1)}초 · 자료 \`${os.summary}\``, "");
+  P("| 도구 | 상태 | 항목 | 메모 |", "|---|---|---:|---|");
+  for (const x of os.tools) P(`| ${x.tool} | ${x.status} | ${x.items}${x.items ? ` (${SEVS.filter((v) => x.by_severity[v]).map((v) => `${v} ${x.by_severity[v]}`).join(" · ")})` : ""} | ${esc(x.note ?? "")} |`);
+  P("");
+  const items = [];
+  for (const x of os.tools) {
+    if (!x.json || !x.items) continue;
+    try { for (const it of readJson(join(ws, x.json)).items ?? []) items.push({ tool: x.tool, ...it }); } catch {}
+  }
+  const shown = items.filter((it) => it.severity !== "INFO").sort((a, c) => SEVS.indexOf(a.severity) - SEVS.indexOf(c.severity));
+  for (const it of shown.slice(0, 50)) {
+    const at = [...(it.head ?? []).map((e) => `\`${e.file}:${e.line}\``), ...(it.base ?? []).map((e) => `\`${e.file}:${e.line}\` (갈림점)`)].slice(0, 3).join(", ");
+    P(`- ${it.severity} \`${it.tool}\` ${it.kind} \`${esc(it.symbol)}\` — ${esc(it.message)}${at ? ` (${at})` : ""}`);
+  }
+  if (shown.length > 50) P(`- … 외 ${shown.length - 50}건`);
+  if (items.length > shown.length) P(`- INFO ${items.length - shown.length}건은 \`${os.summary}\`에 있음`);
+  if (os.replicas?.length) P(`- 다른 레포 복제본 ${os.replicas.length}건: ${os.replicas.map((r) => `${r.repo} \`${r.path}\`${r.missing ? ` (못 가져옴: ${esc(r.missing)})` : ""}`).join(", ")}`);
+  P("");
+}
 if (sc.issues.length) {
   P("## 평가 불완전 사유", "");
   for (const i of sc.issues) P(`- ${esc(i)}`);
@@ -198,7 +224,12 @@ const index = existsSync(indexPath) ? readJson(indexPath) : { repo: ctx.repo.nam
 index.by_sha[t.sha] = {
   gate: sc.gate, overall: sc.overall.score, report: summary.report, json: summary.json, created_at: ctx.created_at,
   branch: t.branch, base: b.ref, run_id: ctx.run_id, triggers: sc.triggers.length, block_reasons: sc.block_reasons.length, season: sc.season.active,
+  // PR 게이트: 장기 브랜치는 mode "full"이고 base_sha가 merge-base(origin/<PR base>, head)여야 통과
+  mode: ctx.mode ?? "incremental", base_sha: b.merge_base, fork_point: ctx.fork_point ?? null,
 };
+// 검증 범위 장부: PR 게이트가 "어느 검증 범위에도 안 든 커밋"을 센다. 같은 실행을 다시 리포트하면 한 번만 남긴다
+index.ranges = (index.ranges ?? []).filter((r) => r.run_id !== ctx.run_id);
+index.ranges.push({ base: b.merge_base, head: t.sha, run_id: ctx.run_id, mode: ctx.mode ?? "incremental" });
 index.updated_at = new Date().toISOString();
 writeJson(indexPath, index);
 console.log(`REPORT=${summary.report}`);

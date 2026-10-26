@@ -18,6 +18,7 @@ color: blue
 4. 변경 내용: `git -C <repo.path> diff <base.merge_base> <target.sha> -- <파일>` 또는 `<RUN_DIR>/diff.patch`. 파일 전체는 `<RUN_DIR>/head/<파일>`(PR 이후), `<RUN_DIR>/base/<파일>`(PR 이전)
 5. 커밋 메시지(`context.commits`)와 PR 본문(`context.target.pr.body`, PR 대상일 때) — 수동 QA 시나리오·미리보기 근거·변경 의도 확인용
 6. 필요하면 프로젝트의 설계·스펙 문서(구조별 관련 스펙은 `context.structures[].specs`), 예산 파라미터 `context.parameters`. `<RUN_DIR>/explore/`에 오케스트레이터가 남긴 영향 지도가 있으면 참고
+7. `<RUN_DIR>/signals/summary.md`(있으면) — 도구가 찾은 diff 밖 사실과 근거(`file:line`). 쓰려면 코드에서 확인한다. 다른 레포 복제본 사본이 있으면 `<RUN_DIR>/replicas/`에 있다
 
 ## 절차
 

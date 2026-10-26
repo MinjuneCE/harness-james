@@ -32,6 +32,14 @@
       "specs": ["docs/specs/payment.md"]
     }
   ],
+  "coverage_ignore": ["src/**/*.test.ts"],
+  "long_lived_branches": ["feat/payment-v2"],
+  "ledgers": [
+    { "branches": ["feat/payment-v2"], "plan": "docs/design/payment-v2/plan.md", "tasks": "docs/design/payment-v2/tasks.md", "docs": ["docs/design/payment-v2/*.md"] }
+  ],
+  "dependents": [
+    { "source": "src/payment/status.ts", "replicas": [{ "repo": "web", "path": "web/src/paymentStatus.ts" }], "note": "결제 상태 표시 조건을 웹이 복제" }
+  ],
   "criteria": { "SEC-04": { "season_review_threshold": 20 } },
   "rules": [
     {

@@ -234,6 +234,31 @@ test("project rules: guard.json commands are denied except their allow prefixes"
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+// Project blind paths: guard.json "blind" hides notes that name the known defects (review results, gap analysis).
+test("project rules: guard.json blind paths are hidden from verify agents; a malformed entry fails closed", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "verify-guard-blindcfg-")));
+  try {
+    mkdirSync(join(root, "docs/evaluation/config"), { recursive: true });
+    mkdirSync(join(root, "notes"), { recursive: true });
+    for (const f of ["notes/review.md", "notes/gap-a.md", "notes/other.md"]) writeFileSync(join(root, f), "x\n");
+    const cfg = (blind) => writeFileSync(join(root, "docs/evaluation/config/guard.json"), JSON.stringify({ blind }));
+    cfg([{ path: "notes/review.md", why: "리뷰 결과" }, { path: "notes", prefix: "gap-" }]);
+    const b = (command) => run("Bash", { command }, JUDGE, { root });
+    for (const cmd of ["cat notes/review.md", "cat notes/gap-a.md", "grep -rn x notes"]) assert.equal(b(cmd).decision, "deny", cmd);
+    assert.match(run("Read", { file_path: join(root, "notes/review.md") }, JUDGE, { root }).reason, /읽기 차단\(리뷰 결과\)/);
+    assert.match(run("Read", { file_path: join(root, "notes/gap-a.md") }, JUDGE, { root }).reason, /읽기 차단\(프로젝트가 막은 기록\)/);
+    for (const cmd of ["cat notes/other.md", "ls notes"]) assert.equal(b(cmd).decision, "none", cmd);
+    // other sessions are not affected
+    assert.equal(run("Bash", { command: "cat notes/review.md" }, null, { root }).decision, "none");
+    for (const bad of [[{ path: "/abs/x" }], [{ path: "../up" }], [{ path: "notes", prefix: "a/b" }], [{}], "notes"]) {
+      cfg(bad);
+      const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "ls" }, cwd: root, agent_type: JUDGE }), encoding: "utf8", env: { ...process.env, CLAUDE_PROJECT_DIR: root, VERIFY_EVAL_DIR: "" } });
+      assert.equal(r.status, 2, JSON.stringify(bad));
+      assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /blind/, JSON.stringify(bad));
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 // The eval dir can move (VERIFY_EVAL_DIR); allowed writes and blind reads follow it.
 test("eval dir: VERIFY_EVAL_DIR moves reports, calibration and guard.json", () => {
   const env = { VERIFY_EVAL_DIR: "qa/eval" };

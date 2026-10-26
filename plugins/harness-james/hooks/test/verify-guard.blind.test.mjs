@@ -24,6 +24,12 @@ after(() => rmSync(PARENT, { recursive: true, force: true }));
 const w = (p, s = "x\n") => { mkdirSync(dirname(join(ROOT, p)), { recursive: true }); writeFileSync(join(ROOT, p), s); };
 const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args], { env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" } });
 before(() => {
+  w("docs/evaluation/config/guard.json", JSON.stringify({ blind: [
+    { path: "notes/review.md", why: "리뷰 결과" },
+    { path: "notes", prefix: "gap-", why: "결함 분석" },
+    { path: "notes/briefs", why: "작업 지시서" },
+  ] }));
+  for (const f of ["notes/review.md", "notes/gap-proposal.md", "notes/gap-gates.md", "notes/GAP-gates.md", "notes/gap-trace.md", "notes/other.md", "notes/briefs/common.md"]) w(f);
   for (const f of ["docs/evaluation/calibration/README.md", "docs/evaluation/calibration/notes.md", "docs/evaluation/rubrics/SEC.md", "docs/evaluation/framework.md", "docs/evaluation/profiles/demo.json", "docs/sdd/x.md", "src/a.js", "qa/eval/calibration/x.json", "qa/eval/rubrics/SEC.md"]) w(f);
   mkdirSync(ROOT, { recursive: true });
   git(ROOT, "init", "-q", "-b", "main");

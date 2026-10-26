@@ -4,7 +4,7 @@
 // (플러그인 에이전트는 frontmatter hooks를 무시한다: code.claude.com/docs/en/sub-agents "plugin subagents don't support the hooks ... fields")
 // 검증은 읽기 전용이어야 한다: 쓰기는 .verify/(실행 등록 .verify/sessions 제외) 와 <평가 폴더>/reports/ 아래만,
 // 소스 레포 변경·빌드·테스트(자격증명으로 실제 외부 시스템을 부를 수 있음)·배포·외부 전송은 거부한다.
-// 평가 폴더는 프로젝트의 docs/evaluation(VERIFY_EVAL_DIR로 바꿀 수 있음). 프로젝트 전용 차단 명령은 <평가 폴더>/config/guard.json에 둔다.
+// 평가 폴더는 프로젝트의 docs/evaluation(VERIFY_EVAL_DIR로 바꿀 수 있음). 프로젝트 전용 차단 명령(commands)과 블라인드 경로(blind)는 <평가 폴더>/config/guard.json에 둔다.
 // Agent 도구는 lib/verify-agents.mjs의 CHILDREN에 적힌, 자기와 같은 플러그인의 subagent_type만 띄울 수 있다.
 // 블라인드 읽기는 lib/blind-paths.mjs가 Read·Grep·Glob·Bash를 같은 경로 규칙으로 판정한다. .verify/runs는 훅 입력 session_id로
 // prepare.mjs --session이 등록한 가장 최근 실행만 열어 준다(등록이 없으면 전부 막음).
@@ -101,16 +101,19 @@ const AGENT_LOGS = [
   makeEntry("/tmp", "에이전트 임시 기록", { prefix: "claude-" }),
 ];
 const PROTECTED = protectedDirs.map((d) => makeEntry(d, "실행 등록", { prefix: "" })); // 폴더 이름은 보여도 되고 안의 파일은 못 읽고 못 쓴다
+// 프로젝트가 정한 블라인드 경로(guard.json blind): 검증 대상의 알려진 결함을 적어 둔 리뷰·분석 기록과 그 작업 지시서
+const PROJECT_BLIND = projectRules.blind.map((b) => makeEntry(resolve(root, b.path), b.why, b.prefix != null ? { prefix: b.prefix } : null));
 const ENTRIES = [
   makeEntry(join(evalDir, "calibration"), "보정 자료"),
   makeEntry(join(root, ".verify/tasks"), "작업 지시서"),
   makeEntry(join(root, ".verify/crosscheck"), "교차검증 산출물"),
   makeEntry(runsDir, ownRun.name ? "다른 /verify 실행" : `등록된 실행 없음: ${ownRun.why}`, { except: ownRun.name ? [ownRun.name] : [] }),
+  ...PROJECT_BLIND,
   ...AGENT_LOGS, ...PROTECTED,
 ];
 const BLOCKED_WORDS = /answer[-_]?key|blind[-_]?key|seed-catalog|seeds\.json/i;
 const blind = createBlind({ root, home, cwd: input.cwd || root, entries: ENTRIES, words: BLOCKED_WORDS });
-const denyBlind = (what) => deny(`${what} — 검증 에이전트는 보정·정답 자료, 다른 실행 폴더, 대화 기록을 읽을 수 없음. 검색은 자기 RUN_DIR/head·base, 레포, 문서 폴더처럼 구체 경로로 좁혀라`);
+const denyBlind = (what) => deny(`${what} — 검증 에이전트는 보정·정답 자료, 다른 실행 폴더, 대화 기록, 프로젝트가 막은 기록(guard.json blind)을 읽을 수 없음. 검색은 자기 RUN_DIR/head·base, 레포, 문서 폴더처럼 구체 경로로 좁혀라`);
 
 if (tool === "Read") { const why = blind.readHit(ti.file_path); if (why) denyBlind(why); }
 if (tool === "Grep") { const why = blind.grepToolHit(ti.path, ti.glob); if (why) denyBlind(why); }
@@ -495,7 +498,7 @@ for (const raw of targets) {
 // { "build_note": "빌드 거부 사유에 붙일 말", "commands": [{ "name": "<실행 파일 이름>", "why": "거부 사유", "allow": [["<하위 명령>", "<동사>"], ...] }] }
 // 파일이 있는데 읽을 수 없으면 예외를 내서 막는다(fail closed)
 function loadProjectRules(path) {
-  if (!existsSync(path)) return { build_note: null, commands: [] };
+  if (!existsSync(path)) return { build_note: null, commands: [], blind: [] };
   let cfg;
   try { cfg = JSON.parse(readFileSync(path, "utf8")); } catch (e) { throw new Error(`${path}를 읽지 못함: ${e.message}`); }
   const bad = (what) => { throw new Error(`${path}: ${what}`); };
@@ -513,6 +516,13 @@ function loadProjectRules(path) {
     const text = new RegExp(`${before}${reEsc(c.name)}\\s+${ok ? `(?!(?:${ok})(?=$|[\\s;&|)'"\`]))` : ""}[^\\s;&|)]`);
     return { name: c.name, why, allow, text };
   });
-  return { build_note: cfg.build_note ?? null, commands };
+  // blind: 검증 에이전트가 못 읽는 프로젝트 경로. path는 프로젝트 기준 상대 경로, prefix가 있으면 path 폴더 안에서 이름이 그걸로 시작하는 것만
+  if (cfg.blind != null && !Array.isArray(cfg.blind)) bad("blind는 배열");
+  const blind = (cfg.blind ?? []).map((e, i) => {
+    if (!e || typeof e.path !== "string" || !e.path || isAbsolute(e.path) || e.path.split("/").includes("..")) bad(`blind[${i}].path는 프로젝트 안 상대 경로`);
+    if (e.prefix != null && (typeof e.prefix !== "string" || !e.prefix || e.prefix.includes("/"))) bad(`blind[${i}].prefix는 /가 없는 비지 않은 문자열`);
+    return { path: e.path.replace(/\/+$/, ""), prefix: e.prefix ?? null, why: typeof e.why === "string" && e.why ? e.why : "프로젝트가 막은 기록" };
+  });
+  return { build_note: cfg.build_note ?? null, commands, blind };
 }
 function reEsc(t) { return t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }

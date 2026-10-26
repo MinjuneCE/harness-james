@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // /verify 1단계: 사전 점검 → 대상 해석 → base/head 트리 추출 → diff·구조 매핑 → 자동 신호 → context.json
-// 사용: node prepare.mjs --session <세션 id> [repo] [target] [--base <ref>] [--season auto|bf|off] [--no-fetch] [--keep-runs N]
+// 사용: node prepare.mjs --session <세션 id> [repo] [target] [--base <ref>] [--full [--merge-ref <ref>]] [--resume <run_id>] [--season auto|bf|off] [--no-fetch] [--keep-runs N]
 //       node prepare.mjs --session <세션 id> --args-stdin   (위 인자 원문을 stdin으로. 셸식 따옴표로만 나누고 $·백틱·글롭은 확장 안 함)
 //   --session: Claude Code 세션 id(UUID). 실행을 .verify/sessions/<id>.json에 등록한다.
 //              verify-guard는 그 세션의 판정·반증·탐색 에이전트에게 가장 최근 등록 실행 폴더만 열어 준다. 없으면 종료 코드 2
@@ -8,16 +8,21 @@
 //   target: 브랜치 | SHA | pr:N | #N   (생략 시 해당 레포의 현재 HEAD)
 //   --repo-path <dir>: 프로파일의 레포 대신 이 경로의 클론을 검증 (보정용 시드 브랜치)
 //   --no-gate: 리포트를 PR 게이트 index에 등록하지 않음 (원본 레포에 있는 시험용 브랜치 검증 시)
+//   --full: 전체 모드. base = 갈림점(merge-base(<PR base 또는 default_base>, head)). --base가 갈림점과 다르면 경고
+//   --merge-ref <ref>: (전체 모드) 머지 결과 커밋. 갈림점·head와 비교하는 reach-compare 신호를 더 돌린다
+//   --resume <run_id>: 멈춘 실행을 이어 돌린다. 대상·base를 맞춰 보고 세션에 다시 등록한 뒤 끝난 단계를 출력한다
+// diff 밖 결정적 신호(signals.mjs)는 모드와 상관없이 갈림점 기준으로 한 번 돈다. 판정 범위는 바꾸지 않는다.
 // 소스 레포의 작업 트리·브랜치는 건드리지 않는다 (git fetch / rev-parse / archive / diff / log 만 사용).
 import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   AGENTS_DIR, DIMENSION_ORDER, SEVERITIES, CONFIDENCES, atLeast, compileRegex, evalDir, evalFile, extractTree, fileSha256, findWorkspace, firstGlobValue,
-  git, gitTry, isNonBehavioral, kstStamp, loadConfig, loadProfiles, matchPaths, parseArgv, parseRubric, parseUnifiedDiff,
+  git, gitTry, isNonBehavioral, kstStamp, loadConfig, loadProfiles, matchPaths, matchesAny, parseArgv, parseRubric, parseUnifiedDiff,
   readStdinText, resolveCommit, sevRank, sha256, shownPath, tokenizeArgs, writeJson,
 } from "./lib.mjs";
+import { forkPoint, runOutsideSignals } from "./signals.mjs";
 
 const RULE_KINDS = ["path-modified", "path-added", "path-deleted", "added-line-regex", "removed-line-regex", "co-change-required", "added-file-missing-regex"];
 const MAX_EVIDENCE = 10;
@@ -47,7 +52,7 @@ function takeSession(argv) {
   }
   return { session: found.length === 1 ? found[0] : null, count: found.length, rest };
 }
-const ARG_SPEC = { flags: ["no-fetch", "json", "no-gate"], options: ["base", "season", "keep-runs", "repo-path"] };
+const ARG_SPEC = { flags: ["no-fetch", "json", "no-gate", "full"], options: ["base", "season", "keep-runs", "repo-path", "merge-ref", "resume"] };
 const sess = takeSession(process.argv.slice(2));
 let args;
 try { args = parseArgv(readArgs(sess.rest), ARG_SPEC); } catch (e) {
@@ -133,6 +138,7 @@ function resolveRepoAndTarget(positional) {
 function resolveTarget(repo, profile, targetInput) {
   const target = { input: targetInput ?? null, ref: null, sha: null, branch: null, pr: null };
   let baseRef = args.base ?? null;
+  let prBase = null;
   const prm = targetInput && targetInput.match(/^(?:pr[:/#]?|#)(\d+)$/i);
   if (prm) {
     const n = prm[1];
@@ -149,6 +155,7 @@ function resolveTarget(repo, profile, targetInput) {
     if (!gitTry(repo, ["cat-file", "-e", `${pr.headRefOid}^{commit}`])) gitTry(repo, ["fetch", "--quiet", "origin", `pull/${n}/head`]);
     if (!gitTry(repo, ["cat-file", "-e", `${pr.headRefOid}^{commit}`])) fail(`PR head 커밋을 가져오지 못함: ${pr.headRefOid}`);
     baseRef = baseRef ?? `origin/${pr.baseRefName}`;
+    prBase = pr.baseRefName;
   } else if (targetInput) {
     for (const ref of [targetInput, `origin/${targetInput}`]) {
       const sha = resolveCommit(repo, ref);
@@ -167,12 +174,16 @@ function resolveTarget(repo, profile, targetInput) {
     const dirty = gitTry(repo, ["status", "--porcelain", "--untracked-files=no"]);
     if (dirty) warnings.push("작업 트리에 커밋 안 된 변경이 있음 — 커밋된 HEAD만 검증함");
   }
+  // 갈림점: PR 대상이면 PR base, 아니면 프로파일 default_base와 head의 merge-base
+  const fork = forkPoint(repo, target.pr ? `origin/${prBase}` : profile.repo.default_base, target.sha);
   baseRef = baseRef ?? profile.repo.default_base;
   const baseSha = resolveCommit(repo, baseRef);
   if (!baseSha) fail(`base를 찾지 못함: ${baseRef}`);
   const mergeBase = gitTry(repo, ["merge-base", baseSha, target.sha]);
   if (!mergeBase) fail(`merge-base 계산 실패: ${baseRef}..${target.sha}`);
-  return { target, base: { input: args.base ?? null, ref: baseRef, sha: baseSha, merge_base: mergeBase } };
+  if (!fork.fork) warnings.push(`갈림점을 계산하지 못함(${fork.ref}) — diff 밖 신호는 이 실행의 merge-base 기준으로 돈다`);
+  if (args.full && fork.fork && mergeBase !== fork.fork) warnings.push(`전체 모드인데 base(${baseRef} → merge-base ${mergeBase.slice(0, 7)})가 갈림점(${fork.ref} → ${fork.fork.slice(0, 7)})과 다름 — PR 게이트는 이 실행을 전체 검증으로 세지 않음`);
+  return { target, base: { input: args.base ?? null, ref: baseRef, sha: baseSha, merge_base: mergeBase }, fork: { ref: fork.ref, sha: fork.fork ?? mergeBase } };
 }
 
 function computeSeason() {
@@ -296,6 +307,17 @@ function structureSummary(profile, files) {
       touched: fs.length > 0, files: fs.map((f) => f.path), behavioral_lines: lines, magnitude: fs.length ? step.factor : 0,
     };
   });
+}
+
+// 프로파일 구조 경로 점검: head 트리에서 아무것도 안 잡는 구조, 어느 구조에도 안 걸린 동작 변경 파일
+function structureCoverage(repo, profile, headSha, files) {
+  const tree = (gitTry(repo, ["ls-tree", "-r", "--name-only", headSha]) ?? "").split("\n").filter(Boolean);
+  const empty = (profile.structures ?? []).filter((s) => !tree.some((p) => matchPaths(p, s.paths, s.exclude))).map((s) => s.id);
+  // coverage_ignore(프로파일, 선택): 시험·문서처럼 구조에 넣지 않는 경로는 이 경고에서 뺀다
+  const unmapped = files.filter((f) => !f.structures.length && f.behavioral > 0 && !matchesAny(f.path, profile.coverage_ignore ?? [])).sort((a, b) => b.behavioral - a.behavioral).map((f) => ({ path: f.path, behavioral: f.behavioral }));
+  for (const id of empty) warnings.push(`프로파일 구조 ${id}의 경로가 head 트리에서 아무 파일도 잡지 않음 — 프로파일 경로 확인 필요`);
+  if (unmapped.length) warnings.push(`어느 구조에도 안 걸린 동작 변경 파일 ${unmapped.length}개: ${unmapped.slice(0, 10).map((f) => `${f.path}(${f.behavioral}줄)`).join(", ")}${unmapped.length > 10 ? ` 외 ${unmapped.length - 10}개` : ""}`);
+  return { empty_structures: empty, unmapped_files: unmapped };
 }
 
 // ---------- 4. 자동 신호 ----------
@@ -468,6 +490,43 @@ function pruneRuns(keep) {
   }
 }
 
+// ---------- 6. 이어 돌리기 (--resume) ----------
+// 실행 폴더가 대상·base와 맞는지 보고, 이 세션에 다시 등록하고, 끝난 단계를 출력한다. 새 실행 폴더는 만들지 않는다
+function resumeContext(id) {
+  if (!/^[\w.-]+$/.test(id)) fail(`--resume 값이 실행 id 형식이 아님: ${id}`);
+  const dir = join(ws, ".verify/runs", id);
+  const p = join(dir, "context.json");
+  if (!existsSync(p)) fail(`이어 돌릴 실행이 없음: .verify/runs/${id}/context.json`);
+  return { dir, ctx: JSON.parse(readFileSync(p, "utf8")) };
+}
+function resumeStatus(runDir, ctx) {
+  const lines = [];
+  const scoreJs = join(dirname(fileURLToPath(import.meta.url)), "score.mjs");
+  const ok = [], redo = [];
+  for (const d of ctx.dimensions.map((x) => x.id)) {
+    if (!existsSync(join(runDir, "judgments", `${d}.json`))) { redo.push(`${d}(파일 없음)`); continue; }
+    const r = spawnSync(process.execPath, [scoreJs, runDir, "--check-judgment", d], { cwd: ws, encoding: "utf8" });
+    if (r.status === 0) ok.push(d);
+    else redo.push(`${d}(형식 오류)`);
+  }
+  lines.push(`- 판정: 형식 점검 통과 ${ok.join(", ") || "없음"}${redo.length ? ` / 다시 띄울 것 ${redo.join(", ")}` : ""}`);
+  const tdir = join(runDir, "refutation-targets");
+  const chunks = existsSync(tdir) ? readdirSync(tdir).filter((n) => n.endsWith(".json")).map((n) => n.slice(0, -5)).sort() : [];
+  const done = chunks.filter((c) => existsSync(join(runDir, "refutation", `${c}.json`)));
+  lines.push(chunks.length
+    ? `- 반증 묶음: 결과 있음 ${done.join(", ") || "없음"}${done.length < chunks.length ? ` / 결과 없음 ${chunks.filter((c) => !done.includes(c)).join(", ")}` : ""}`
+    : "- 반증 묶음: 아직 안 나눔");
+  const scored = existsSync(join(runDir, "scores.json"));
+  lines.push(`- 채점: ${scored ? "scores.json 있음" : "안 함"}`);
+  if (scored) {
+    let triggers = [];
+    try { triggers = JSON.parse(readFileSync(join(runDir, "scores.json"), "utf8")).triggers ?? []; } catch {}
+    const missing = triggers.filter((t) => !existsSync(join(runDir, t.packet))).map((t) => t.key);
+    lines.push(`- 검토 패킷: ${triggers.length - missing.length}/${triggers.length}${missing.length ? ` (없음 ${missing.join(", ")})` : ""}`);
+  }
+  return lines;
+}
+
 // ---------- main ----------
 const stopIfErrors = (stage) => {
   if (!errors.length) return;
@@ -477,6 +536,17 @@ const stopIfErrors = (stage) => {
 };
 const pre = preflight();
 stopIfErrors("사전 점검(모델 정책)");
+const resumed = args.resume ? resumeContext(args.resume) : null;
+if (resumed) {
+  // 재개: 생략한 인자는 원래 실행의 값으로 채운다
+  const c = resumed.ctx;
+  if (!args._.length) args._ = [c.repo.key, c.target.sha];
+  args.base = args.base ?? c.base.ref;
+  if (c.repo.path && !args["repo-path"] && c.repo_override) args["repo-path"] = c.repo.path;
+  if (args.full && c.mode !== "full") fail(`--full로 재개하려는데 원래 실행은 ${c.mode ?? "incremental"} 모드임: ${args.resume}`);
+  args.full = c.mode === "full";
+  args["no-fetch"] = true;
+}
 const { profile, targetInput } = resolveRepoAndTarget(args._);
 const repo = repoPathOf(profile);
 if (!existsSync(join(repo, ".git"))) fail(`레포 없음: ${repo}`);
@@ -486,10 +556,37 @@ stopIfErrors("rubric·규칙 로드");
 if (!args["no-fetch"]) {
   if (gitTry(repo, ["fetch", "--quiet", "--prune", "origin"]) === null) warnings.push("git fetch 실패 — 로컬에 있는 ref로 진행");
 }
-const { target, base } = resolveTarget(repo, profile, targetInput);
+const { target, base, fork } = resolveTarget(repo, profile, targetInput);
+const mode = args.full ? "full" : "incremental";
+let mergeRef = null;
+if (args["merge-ref"]) {
+  if (!args.full) fail("--merge-ref는 --full과 같이 쓴다");
+  mergeRef = resolveCommit(repo, args["merge-ref"]);
+  if (!mergeRef) fail(`--merge-ref를 찾지 못함: ${args["merge-ref"]} (레포 ${repo}에 있는 커밋이어야 함)`);
+}
+
+if (resumed) {
+  const c = resumed.ctx;
+  const diff = [];
+  if (c.repo.key !== profile.repo.key) diff.push(`레포 ${c.repo.key} ≠ ${profile.repo.key}`);
+  if (c.target.sha !== target.sha) diff.push(`대상 ${c.target.sha.slice(0, 7)} ≠ 지금 ${target.sha.slice(0, 7)}${targetInput ? ` (${targetInput}가 움직였으면 새로 실행)` : ""}`);
+  if (c.base.merge_base !== base.merge_base) diff.push(`base merge-base ${c.base.merge_base.slice(0, 7)} ≠ ${base.merge_base.slice(0, 7)}`);
+  if (diff.length) fail(`이어 돌릴 실행과 맞지 않음 (${args.resume}): ${diff.join(", ")}`);
+  registerRun(sess.session, resumed.dir);
+  // 오래된 실행 정리로 트리가 지워졌으면 다시 푼다
+  if (!existsSync(join(resumed.dir, "head"))) extractTree(repo, c.target.sha, join(resumed.dir, "head"));
+  if (!existsSync(join(resumed.dir, "base"))) extractTree(repo, c.base.merge_base, join(resumed.dir, "base"));
+  console.log(`RUN_DIR=${c.run_dir}`);
+  console.log(`재개: ${c.run_id} (${c.mode ?? "incremental"} 모드) 레포 ${profile.repo.name} 대상 ${c.target.branch ?? c.target.ref} @ ${c.target.sha.slice(0, 7)} base merge-base ${c.base.merge_base.slice(0, 7)}`);
+  console.log("끝난 단계 (끝난 것은 건너뛴다):");
+  for (const l of resumeStatus(resumed.dir, c)) console.log(l);
+  process.exit(0);
+}
 
 const frameworkPath = evalFile(ws, "framework.md");
-const runId = `${profile.repo.key}-${target.sha.slice(0, 7)}-${stamp.compact}`;
+// 같은 head를 같은 초에 다시 준비하면 앞 실행 폴더(판정·채점 결과)를 섞지 않게 뒤에 번호를 붙인다
+let runId = `${profile.repo.key}-${target.sha.slice(0, 7)}-${stamp.compact}`;
+for (let n = 2; existsSync(join(ws, ".verify/runs", runId)); n++) runId = `${profile.repo.key}-${target.sha.slice(0, 7)}-${stamp.compact}-${n}`;
 const runDir = join(ws, ".verify/runs", runId);
 for (const d of ["judgments", "refutation", "refutation-targets", "packets", "explore"]) mkdirSync(join(runDir, d), { recursive: true });
 registerRun(sess.session, runDir);
@@ -516,6 +613,11 @@ extractTree(repo, base.merge_base, trees.base);
 const files = buildDiff(repo, profile, base.merge_base, target.sha, runDir);
 const commits = collectCommits(repo, base.merge_base, target.sha);
 const structures = structureSummary(profile, files);
+const coverage = structureCoverage(repo, profile, target.sha, files);
+const outside = runOutsideSignals({
+  ws, runDir, profile, profiles, repo, mode, fork: fork.sha, head: target.sha, runBase: base.merge_base, branch: target.branch, mergeRef,
+  changedPaths: [...new Set(files.flatMap((f) => [f.path, f.old_path].filter(Boolean)))], warnings,
+});
 
 let ruleFindings = [];
 let toolFindings = [];
@@ -539,6 +641,10 @@ const ctx = {
   repo: { key: profile.repo.key, name: profile.repo.name, path: repo, github: profile.repo.github },
   // 다른 위치의 클론(--repo-path)이나 PR 게이트에 넣지 않을 실행(--no-gate): 리포트는 calibration/reports/로, PR 게이트 index에는 넣지 않음
   repo_override: !!args["repo-path"] || !!args["no-gate"],
+  mode,
+  // 갈림점: PR base(또는 default_base)와 head의 merge-base. 전체 모드면 base.merge_base와 같다
+  fork_point: fork.sha,
+  fork_ref: fork.ref,
   target,
   base,
   trees: { head: relative(ws, trees.head), base: relative(ws, trees.base) },
@@ -570,6 +676,9 @@ const ctx = {
   },
   structures,
   signals: { rule_findings: ruleFindings, tool_findings: toolFindings, tool_runs: toolRuns },
+  // diff 밖 결정적 신호(갈림점 기준). 점수에 넣지 않는다. 판정 자료는 outside_signals.summary
+  outside_signals: { ...outside, merge_ref: mergeRef },
+  profile_coverage: coverage,
   refute_min_severity: scoring.refute_min_severity,
   preflight: { ok: errors.length === 0, checks: pre, errors },
   warnings,
@@ -590,6 +699,8 @@ if (args.json) {
   console.log(`적용 차원: ${crit.dims.join(", ")} / 기준 ${Object.keys(crit.criteria).length}개 / 규칙 ${crit.rules.length}개`);
   console.log(`자동 신호: 규칙 ${ruleFindings.length}건, 도구 ${toolFindings.length}건 (반증 대상 ${refuteCount}건)${toolRuns.length ? ` / ${toolRuns.map((t) => `${t.tool}:${t.status}${t.introduced ? ` 신규 ${t.introduced}` : ""}`).join(", ")}` : ""}`);
   for (const s of signals) console.log(`  · ${s.id} [${s.criterion} ${s.severity}/${s.confidence}] ${s.title}${s.files?.length > 1 ? ` (파일 ${s.files.length}개)` : ""}`);
+  console.log(`모드: ${mode === "full" ? "전체" : "증분"}  갈림점: ${fork.sha.slice(0, 7)} (${fork.ref})`);
+  console.log(`diff 밖 신호(갈림점 기준, ${(outside.elapsed_ms / 1000).toFixed(1)}초): ${outside.tools.map((t) => `${t.tool}:${t.status}${t.status === "ok" ? ` ${t.items}건` : ""}`).join(", ")} → ${outside.summary}${outside.replica_files ? ` / 복제본 ${outside.replica_files}개` : ""}`);
   console.log(`시즌 모드: ${season.active ? `ON (${season.label})` : "off"}`);
   for (const w of warnings) console.log(`⚠ ${w}`);
 }
