@@ -43,7 +43,9 @@ export function subSettings({ prefix, root }, extra) {
     // human's. The CLI flag --prompt-suggestions false is ignored in interactive 2.1.30x; this key works.
     promptSuggestionEnabled: false,
     hooks: {
-      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `node ${q(join(HOME, 'hooks', 'sub-guard.mjs'))}`, timeout: 5 }] }],
+      // onFailure 'block' (Claude Code 2.1.295+): a guard that cannot start, exits with a code other than 0/2 or times out
+      // blocks the Bash call; without it such a failure lets the call through.
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `node ${q(join(HOME, 'hooks', 'sub-guard.mjs'))}`, timeout: 5, onFailure: 'block' }] }],
     },
   }
   return extra ? merge(s, extra) : s

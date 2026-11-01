@@ -101,6 +101,7 @@ test('spawn: sub settings deny push/PR, env role sub, no --effort, start prompt 
   assert.equal(s.env.GIT_CONFIG_KEY_0, 'url.pane-lead-sub-push-is-main-only://.pushInsteadOf')
   const guard = s.hooks.PreToolUse[0].hooks[0].command.match(/'([^']+)'/)[1]
   assert.ok(guard.endsWith('/hooks/sub-guard.mjs') && existsSync(guard), guard)
+  assert.equal(s.hooks.PreToolUse[0].hooks[0].onFailure, 'block', 'a sub-guard that fails must block, not pass')
   assert.match(a.prompts[0], new RegExp(b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   assert.match(a.prompts[0], /\.research\/out\/s1\.md/)
   const reg = w.registry().subs.s1
