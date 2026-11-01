@@ -19,7 +19,6 @@ james가 쓰는 Claude Code 하네스를 묶은 플러그인 마켓플레이스�
 - **Node 18 이상이 PATH에 있어야 해요.** 훅과 스킬 스크립트가 모두 `node`로 돌아요.
   - 가드 훅 5개는 모두 `onFailure: block`이에요(아래 "훅이 하는 일"). node를 PATH에서 못 찾으면 **그 맥의 모든 세션에서** Bash 호출이 막히고, verify-guard가 걸린 Read·Edit·Grep 등도 막혀요.
 - **Claude Code 2.1.295 이상**(`onFailure` 필요). 2.1.316에서 시험했어요. work-trace·context-band는 mod API를 써서 최신판이 필요해요.
-- **이 private 레포에 접근할 수 있어야 해요:** `gh auth login` 또는 GitHub SSH 키.
 - git, gh(`pr-verify`의 `pr:N` 대상, 훅이 보는 명령).
 - **herdr**(pane-lead용). pane-lead는 herdr pane 안에서만 동작해요. herdr의 에이전트 상태 훅은 herdr가 관리하고 이 플러그인에는 없어요.
 - gitleaks(선택). skill-check 비밀값 검사에 써요. 없으면 정규식 검사로 대신해요. skill-check는 `python3`·`bash`가 있으면 대상의 .py·.sh 문법도 봐요.
@@ -28,7 +27,7 @@ james가 쓰는 Claude Code 하네스를 묶은 플러그인 마켓플레이스�
 ## 설치
 
 ```sh
-claude plugin marketplace add <GitHub 계정>/harness-james
+claude plugin marketplace add MinjuneCE/harness-james
 claude plugin install harness-james@harness-james
 claude plugin install work-trace@harness-james
 claude plugin install context-band@harness-james
