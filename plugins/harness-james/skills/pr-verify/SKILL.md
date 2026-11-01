@@ -1,6 +1,6 @@
 ---
-name: verify
-description: PR 전 코드 검증. 레포 프로파일(docs/evaluation/profiles/*.json)이 있는 레포의 브랜치나 PR을 보안·성능(BF)·아키텍처·신뢰성·관측성·테스트·접근성 차원에서 Opus 5.5 max로 정량 채점하고 BLOCK·REVIEW_REQUIRED·PASS를 판정해 리포트를 남긴다. 실행 비용이 크므로 사용자가 PR 전 검증이나 /verify를 명시적으로 요청할 때만 쓴다.
+name: pr-verify
+description: PR 전 코드 검증. 레포 프로파일(docs/evaluation/profiles/*.json)이 있는 레포의 브랜치나 PR을 보안·성능(BF)·아키텍처·신뢰성·관측성·테스트·접근성 차원에서 Opus 5.5 max로 정량 채점하고 BLOCK·REVIEW_REQUIRED·PASS를 판정해 리포트를 남긴다. 실행 비용이 크므로 사용자가 PR 전 검증이나 /harness-james:pr-verify(옛 이름 /harness-james:verify)를 명시적으로 요청할 때만 쓴다.
 argument-hint: "<레포 별칭> [브랜치|SHA|pr:N] [--base <ref>] [--full [--merge-ref <ref>]] [--resume <run_id>] [--season bf|off]"
 context: fork
 agent: harness-james:verify-orchestrator
@@ -9,7 +9,7 @@ model: claude-opus-5-5
 effort: max
 ---
 
-# /verify — PR 검증 실행
+# /pr-verify — PR 검증 실행
 
 인자: `$ARGUMENTS`
 

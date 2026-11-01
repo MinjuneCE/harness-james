@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// /verify 채점: 판정·반증 결과 검증 → 기준 위험도·차원 품질·종합 품질·구조 영향도 → 판정(BLOCK/REVIEW_REQUIRED/PASS)
+// /pr-verify 채점: 판정·반증 결과 검증 → 기준 위험도·차원 품질·종합 품질·구조 영향도 → 판정(BLOCK/REVIEW_REQUIRED/PASS)
 // 사용:
 //   node score.mjs <run_dir>                         채점 후 scores.json 작성
 //   node score.mjs <run_dir> --check [--stage judgments]  판정(·반증) 결과만 검증 (문제 있으면 exit 1)

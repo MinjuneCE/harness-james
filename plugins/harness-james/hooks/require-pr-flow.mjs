@@ -264,7 +264,7 @@ if (isMain) {
         permissionDecision: "deny",
         permissionDecisionReason:
           `프로젝트 규칙: 보호 브랜치(${[...PROTECTED].join("·")})로는 직접 push할 수 없습니다 — ${reason}. ` +
-          "이 워크스페이스는 PR 방식만 허용합니다: feat/<이름> 브랜치로 push(사용자 승인) → gh pr create(프로파일이 있는 레포는 /harness-james:verify 게이트) → 사용자 승인 후 gh pr merge.",
+          "이 워크스페이스는 PR 방식만 허용합니다: feat/<이름> 브랜치로 push(사용자 승인) → gh pr create(프로파일이 있는 레포는 /harness-james:pr-verify 게이트) → 사용자 승인 후 gh pr merge.",
       },
     }));
   }

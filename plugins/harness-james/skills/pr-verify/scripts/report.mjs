@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// /verify 리포트: scores.json + context.json + packets/*.md → <평가 폴더>/reports/<repo>/<날짜>-<브랜치>-<sha7>.{md,json} + index.json
+// /pr-verify 리포트: scores.json + context.json + packets/*.md → <평가 폴더>/reports/<repo>/<날짜>-<브랜치>-<sha7>.{md,json} + index.json
 // 사용: node report.mjs <run_dir>
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -197,7 +197,7 @@ if (sc.issues.length) {
   for (const i of sc.issues) P(`- ${esc(i)}`);
   P("");
 }
-P("---", `_생성: /verify${ctx.repo_override ? " (보정 실행 — PR 게이트에 반영 안 됨)" : ""} · 실행 산출물 \`${ctx.run_dir}\` · 산식 ${frameworkRef()}_`, "");
+P("---", `_생성: /pr-verify${ctx.repo_override ? " (보정 실행 — PR 게이트에 반영 안 됨)" : ""} · 실행 산출물 \`${ctx.run_dir}\` · 산식 ${frameworkRef()}_`, "");
 
 writeFileSync(mdPath, L.join("\n"));
 const summary = {

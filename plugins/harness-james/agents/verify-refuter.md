@@ -1,6 +1,6 @@
 ---
 name: verify-refuter
-description: PR 검증(/verify)의 반증 에이전트. verify-orchestrator가 high 이상 finding 목록을 주고 띄운다. 각 finding을 반증하려 시도하고 upheld/downgraded/rejected/uncertain을 refutation/<CHUNK>.json에 쓴다.
+description: PR 검증(/pr-verify)의 반증 에이전트. verify-orchestrator가 high 이상 finding 목록을 주고 띄운다. 각 finding을 반증하려 시도하고 upheld/downgraded/rejected/uncertain을 refutation/<CHUNK>.json에 쓴다.
 model: claude-opus-5-5
 effort: max
 tools: Read, Grep, Glob, Bash, Write, Agent, WebFetch

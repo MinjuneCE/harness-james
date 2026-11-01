@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PreToolUse(Bash) hook: `gh pr create` 전에 현재 HEAD의 /verify 리포트를 확인한다.
+// PreToolUse(Bash) hook: `gh pr create` 전에 현재 HEAD의 /pr-verify 리포트를 확인한다.
 // PASS면 그대로 진행, 리포트가 없거나 REVIEW_REQUIRED·BLOCK이면 사용자 승인(ask)에서 멈춘다.
 // 장기 브랜치(프로파일 long_lived_branches)의 PR은 갈림점 기준 전체 모드 리포트가 있어야 한다
 // (index 항목 mode "full", base_sha = merge-base(origin/<PR base>, head)).
@@ -103,7 +103,7 @@ const ask = (reason) => {
   process.exit(0);
 };
 
-if (!sha) ask(`${profile.repo.name} ${label ?? "?"}의 커밋을 확인하지 못함 — /harness-james:verify ${profile.repo.aliases[0]} ${label ?? ""} 실행 후 PR 생성 권장`);
+if (!sha) ask(`${profile.repo.name} ${label ?? "?"}의 커밋을 확인하지 못함 — /harness-james:pr-verify ${profile.repo.aliases[0]} ${label ?? ""} 실행 후 PR 생성 권장`);
 const indexPath = join(evalDir, "reports", profile.repo.name, "index.json");
 let index = null;
 try { index = JSON.parse(readFileSync(indexPath, "utf8")); } catch { index = null; }
@@ -173,7 +173,7 @@ const askInfo = (reason) => ask(`${reason}${covNote}${featureNote()}`);
 
 // 5) 장기 브랜치 → PR base: 갈림점 기준 전체 모드 리포트가 있어야 지금 규칙으로 넘어간다
 if ((profile.long_lived_branches ?? []).includes(label)) {
-  const fullCmd = `/harness-james:verify ${profile.repo.aliases[0]} ${label} --full`;
+  const fullCmd = `/harness-james:pr-verify ${profile.repo.aliases[0]} ${label} --full`;
   if (!fork) askInfo(`${target}는 장기 브랜치인데 PR base ${prBase}를 찾지 못해 갈림점을 확인할 수 없음. fetch 뒤 ${fullCmd} 결과로 다시 시도하세요. 그래도 PR을 만들려면 승인.`);
   const miss = [];
   if (!entry) miss.push("head SHA의 검증 리포트 없음");
@@ -184,7 +184,7 @@ if ((profile.long_lived_branches ?? []).includes(label)) {
   }
   if (miss.length) askInfo(`${target}는 장기 브랜치 → ${prBase} PR이라 갈림점(${fork.slice(0, 7)}) 기준 전체 검증이 필요함: ${miss.join(", ")}. 먼저 ${fullCmd} 를 실행하세요. 그래도 PR을 만들려면 승인.`);
 }
-if (!entry) askInfo(`${target}의 검증 리포트 없음. 먼저 /harness-james:verify ${profile.repo.aliases[0]} ${label} 를 실행하세요. 그래도 PR을 만들려면 승인.`);
+if (!entry) askInfo(`${target}의 검증 리포트 없음. 먼저 /harness-james:pr-verify ${profile.repo.aliases[0]} ${label} 를 실행하세요. 그래도 PR을 만들려면 승인.`);
 if (entry.gate === "PASS") process.exit(0);
 if (entry.gate === "REVIEW_REQUIRED") askInfo(`${target} = REVIEW_REQUIRED (종합 ${entry.overall}, 직접 검토 트리거 ${entry.triggers}건). 리포트 ${entry.report} 의 검토 패킷을 확인했으면 승인.`);
-askInfo(`${target} = BLOCK (종합 ${entry.overall}, 차단 사유 ${entry.block_reasons}건). 리포트 ${entry.report}. 수정 후 /harness-james:verify 재실행 권장 — 그래도 PR을 만들려면 승인.`);
+askInfo(`${target} = BLOCK (종합 ${entry.overall}, 차단 사유 ${entry.block_reasons}건). 리포트 ${entry.report}. 수정 후 /harness-james:pr-verify 재실행 권장 — 그래도 PR을 만들려면 승인.`);

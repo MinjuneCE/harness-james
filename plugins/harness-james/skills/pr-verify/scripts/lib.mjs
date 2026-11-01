@@ -1,4 +1,4 @@
-// /verify 공통 유틸: 경로·glob·git·diff 파싱·rubric 파싱·해시
+// /pr-verify 공통 유틸: 경로·glob·git·diff 파싱·rubric 파싱·해시
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";

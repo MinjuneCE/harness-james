@@ -1,6 +1,6 @@
 ---
 name: verify-orchestrator
-description: PR 검증(/verify) 파이프라인 오케스트레이터. verify 스킬이 context fork로 실행할 때만 쓴다. 다른 작업에 위임하지 않는다.
+description: PR 검증(/pr-verify) 파이프라인 오케스트레이터. pr-verify 스킬이 context fork로 실행할 때만 쓴다. 다른 작업에 위임하지 않는다.
 model: claude-opus-5-5
 effort: max
 tools: Bash, Read, Write, Glob, Grep, Agent

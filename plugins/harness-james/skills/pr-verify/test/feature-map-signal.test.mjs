@@ -1,4 +1,4 @@
-// /verify 신호의 feature-map: 프로파일에 feature_map이 있을 때만 돈다. 피처맵 도구는 플러그인에 없어서
+// /pr-verify 신호의 feature-map: 프로파일에 feature_map이 있을 때만 돈다. 피처맵 도구는 플러그인에 없어서
 // VERIFY_FM_BIN이 가리키는 프로젝트 도구를 부르고, 설정이 없거나 파일이 없으면 경고만 남기고 계속한다.
 // 여기서는 test/fake-signal-bin의 가짜 fm-check를 쓴다. 다른 신호 도구는 위치를 주지 않아 error로 둔다.
 import assert from "node:assert/strict";

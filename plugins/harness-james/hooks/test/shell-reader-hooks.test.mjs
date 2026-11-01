@@ -18,7 +18,7 @@ const g = (...a) => execFileSync("git", ["-C", REPO, ...a], { stdio: "ignore" })
 g("init", "-q", "-b", "dev");
 g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init");
 g("remote", "add", "origin", "https://example.invalid/repo.git");
-// a workspace root whose profile lists REPO, for the /verify gate
+// a workspace root whose profile lists REPO, for the /pr-verify gate
 mkdirSync(join(TMP, "docs/evaluation/profiles"), { recursive: true });
 writeFileSync(join(TMP, "docs/evaluation/profiles/r.json"), JSON.stringify({ repo: { name: "r", path: "repo", github: "o/r", aliases: ["r"] } }));
 test.after(() => rmSync(TMP, { recursive: true, force: true }));

@@ -227,7 +227,9 @@ export const PASS = [
   "git -C @ROOT/sample-api grep -n TODO",
   "cat docs/evaluation/rubrics/SEC.md",
   "cat docs/evaluation/framework.md docs/evaluation/profiles/demo.json",
-  "node skills/verify/scripts/score.mjs .verify/runs/@OWN --check-judgment SEC",
+  "node skills/pr-verify/scripts/score.mjs .verify/runs/@OWN --check-judgment SEC",
+  // The judge's own check as it runs from an installed plugin (agents/verify-judge.md, ${CLAUDE_PLUGIN_ROOT} expanded).
+  'node "@HOME/.claude/plugins/cache/harness-james/harness-james/0.6.0/skills/pr-verify/scripts/score.mjs" @ROOT/.verify/runs/@OWN --check-judgment SEC',
   // Project blind paths: other notes stay readable, blocked names are visible.
   "cat notes/other.md",
   "ls notes",

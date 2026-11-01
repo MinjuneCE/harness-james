@@ -1,6 +1,6 @@
 # 레포 프로파일 작성 안내
 
-`/verify`는 프로파일이 등록된 레포만 검증한다. PR 생성 게이트 훅(`require-verify-before-pr`)도 프로파일이 있는 레포에서만 동작한다. 프로파일이 없는 레포에서는 두 훅 모두 아무것도 하지 않는다.
+`/pr-verify`는 프로파일이 등록된 레포만 검증한다. PR 생성 게이트 훅(`require-verify-before-pr`)도 프로파일이 있는 레포에서만 동작한다. 프로파일이 없는 레포에서는 두 훅 모두 아무것도 하지 않는다.
 
 ## 어디에 두나
 
@@ -10,7 +10,7 @@
 <워크스페이스>/
   docs/evaluation/            ← 평가 폴더 (VERIFY_EVAL_DIR로 바꿀 수 있음, 워크스페이스 기준 상대 경로)
     profiles/<이름>.json      ← 레포마다 하나 (필수)
-    reports/                  ← /verify가 쓰는 리포트와 PR 게이트 색인 (자동 생성)
+    reports/                  ← /pr-verify가 쓰는 리포트와 PR 게이트 색인 (자동 생성)
     calibration/              ← 보정 자료 (선택. 검증 에이전트는 읽지 못함)
     config/guard.json         ← 프로젝트 전용 차단 명령 (선택)
     tools/*.mjs               ← 프로젝트 도구 모듈 (선택)
@@ -26,7 +26,7 @@
 
 1. `${CLAUDE_SKILL_DIR}/examples/profile.example.json`을 `docs/evaluation/profiles/<이름>.json`으로 복사한다.
 2. 아래 필드를 레포에 맞게 고친다.
-3. `/verify <별칭>`을 실행한다. 1단계(`prepare.mjs`)가 프로파일 오류를 먼저 알려 준다.
+3. `/pr-verify <별칭>`을 실행한다. 1단계(`prepare.mjs`)가 프로파일 오류를 먼저 알려 준다.
 
 ## 필드
 
@@ -37,7 +37,7 @@
 | `repo.path` | 워크스페이스 기준 레포 경로 |
 | `repo.github` | `owner/repo`. `pr:N` 대상과 PR 게이트의 `-R` 판별에 쓴다 |
 | `repo.default_base` | base를 안 주면 쓰는 ref |
-| `repo.aliases` | `/verify <별칭>`으로 부를 이름들 (첫 번째가 안내 메시지에 쓰인다) |
+| `repo.aliases` | `/pr-verify <별칭>`으로 부를 이름들 (첫 번째가 안내 메시지에 쓰인다) |
 | `repo.traits` | `server`·`client` 중 하나 이상. rubric 기준의 "적용"(공통·서버·클라이언트)을 고른다 |
 | `dimensions.<차원>.weight` | 적용할 차원과 종합 점수 가중치. 빠진 차원은 평가하지 않는다 (SEC·PERF·ARCH·REL·OPS·TEST·A11Y) |
 | `floors` | 차원·종합 차단선 |

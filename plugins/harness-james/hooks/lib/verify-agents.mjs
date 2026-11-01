@@ -1,4 +1,4 @@
-// /verify 에이전트 목록: verify-guard.mjs가 훅 입력의 agent_type으로 가드 대상과 하위 에이전트 허용 목록을 정한다.
+// /pr-verify 에이전트 목록: verify-guard.mjs가 훅 입력의 agent_type으로 가드 대상과 하위 에이전트 허용 목록을 정한다.
 // 플러그인 에이전트의 agent_type은 "<플러그인>:<name>"(예: harness-james:verify-judge)이고, Agent 도구의 subagent_type도 같은 이름을 써야 한다.
 // 프로젝트·사용자 수준에 복사한 에이전트는 접두어 없이 name 그대로 온다. 두 경우 모두 가드한다.
 export const VERIFY_AGENTS = ["verify-orchestrator", "verify-judge", "verify-refuter", "verify-explorer"];

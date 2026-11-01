@@ -80,7 +80,7 @@ test("장기 브랜치: 증분 PASS 리포트로는 통과하지 않고, 전체 
   const inc = run(PR, { cwd: WT });
   assert.equal(inc.decision, "ask");
   assert.match(inc.reason, /증분/);
-  assert.match(inc.reason, /\/harness-james:verify demo feat\/long --full/);
+  assert.match(inc.reason, /\/harness-james:pr-verify demo feat\/long --full/);
   assert.match(inc.reason, /어느 검증 범위에도 안 든 커밋 2개/);
 
   setIndex({ by_sha: { [S.l3]: entry({ mode: "full", base_sha: S.fork, fork_point: S.fork }) }, ranges: [{ base: S.fork, head: S.l3, mode: "full" }] });

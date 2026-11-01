@@ -3,7 +3,7 @@
 - 버전: 2.1.0 (2026-10-23)
 - 대상: 모든 레포. 레포마다 프로파일 하나를 둔다. 레포 성격(`repo.traits`: `server`·`client`)과 차원 가중치가 어떤 차원·기준을 적용할지 정한다
 - 수치 파라미터: [`config/scoring.json`](config/scoring.json) · 기준 본문: [`rubrics/`](rubrics/) · 레포별 설정: 프로젝트 평가 폴더의 `profiles/`(기본 `docs/evaluation/profiles/`, 작성 안내 [`../references/profile-guide.md`](../references/profile-guide.md))
-- 실행: `/verify` 스킬 (harness-james 플러그인 `skills/verify/`)
+- 실행: `/pr-verify` 스킬 (harness-james 플러그인 `skills/pr-verify/`)
 
 이 문서는 PR 검증이 **무엇을, 어떤 규칙으로, 몇 점으로** 판정하는지 정한다. 판정 에이전트(LLM)는 근거가 달린 finding만 만든다. 점수와 판정은 스크립트(`score.mjs`)가 이 문서의 산식대로 계산한다. finding이 같으면 점수도 항상 같다.
 
@@ -240,7 +240,7 @@ PR 생성(`gh pr create`) 시 훅이 현재 HEAD의 리포트를 확인한다. P
 
 ## 7. 피크 시즌 모드
 
-`config/scoring.json`의 `season.windows` 기간(연중 최대 트래픽 시즌. 기간은 설정 값)이거나 `/verify --season on`으로 실행하면 적용한다. 변경 동결에 가까운 기간에 검토 문턱을 낮추고 성능·신뢰성 비중을 높이는 모드다.
+`config/scoring.json`의 `season.windows` 기간(연중 최대 트래픽 시즌. 기간은 설정 값)이거나 `/pr-verify --season on`으로 실행하면 적용한다. 변경 동결에 가까운 기간에 검토 문턱을 낮추고 성능·신뢰성 비중을 높이는 모드다.
 
 | 항목 | 평시 | 시즌 |
 |---|---|---|

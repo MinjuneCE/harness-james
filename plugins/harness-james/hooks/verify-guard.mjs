@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// /verify 에이전트 전용 PreToolUse 가드. 플러그인 hooks/hooks.json에 걸려 모든 세션의 도구 호출마다 불리고,
+// /pr-verify 에이전트 전용 PreToolUse 가드. 플러그인 hooks/hooks.json에 걸려 모든 세션의 도구 호출마다 불리고,
 // 훅 입력의 agent_type이 verify 에이전트(lib/verify-agents.mjs)일 때만 판정한다. 그 밖의 호출은 바로 통과시킨다.
 // (플러그인 에이전트는 frontmatter hooks를 무시한다: code.claude.com/docs/en/sub-agents "plugin subagents don't support the hooks ... fields")
 // 검증은 읽기 전용이어야 한다: 쓰기는 .verify/(실행 등록 .verify/sessions 제외) 와 <평가 폴더>/reports/ 아래만,
@@ -78,7 +78,7 @@ const tool = input.tool_name;
 const ti = input.tool_input ?? {};
 
 // 블라인드 유지: 검증 에이전트는 정답·시드 정보를 읽을 수 없다
-// (보정 기록·시드 카탈로그, 작업 지시서, 교차검증 산출물, 다른 /verify 실행, 대화 기록, 사용자 답안 파일)
+// (보정 기록·시드 카탈로그, 작업 지시서, 교차검증 산출물, 다른 /pr-verify 실행, 대화 기록, 사용자 답안 파일)
 const home = process.env.HOME || "";
 const runsDir = join(root, ".verify/runs");
 // 자기 실행 = 훅 입력 session_id로 prepare.mjs가 등록한 가장 최근 실행. 없으면 .verify/runs 전체를 막는다(fail closed)
@@ -107,7 +107,7 @@ const ENTRIES = [
   makeEntry(join(evalDir, "calibration"), "보정 자료"),
   makeEntry(join(root, ".verify/tasks"), "작업 지시서"),
   makeEntry(join(root, ".verify/crosscheck"), "교차검증 산출물"),
-  makeEntry(runsDir, ownRun.name ? "다른 /verify 실행" : `등록된 실행 없음: ${ownRun.why}`, { except: ownRun.name ? [ownRun.name] : [] }),
+  makeEntry(runsDir, ownRun.name ? "다른 /pr-verify 실행" : `등록된 실행 없음: ${ownRun.why}`, { except: ownRun.name ? [ownRun.name] : [] }),
   ...PROJECT_BLIND,
   ...AGENT_LOGS, ...PROTECTED,
 ];
@@ -466,7 +466,7 @@ if (TEXT_BLOCKED.some((b) => cmdNoWorktrees.includes(b) || (b.startsWith(root + 
 }
 // 다른 실행 폴더 이름을 글자로 적은 명령
 for (const m of cmd.matchAll(/\.verify\/runs\/([^\s'"`;|&)<>/]*)/g)) {
-  if (m[1] && (!ownRun.name || m[1].toLowerCase() !== ownRun.name.toLowerCase())) denyBlind(`다른 /verify 실행 폴더를 가리킴(${ownRun.name ? "자기 실행 아님" : ownRun.why}): ${m[0].slice(0, 100)}`);
+  if (m[1] && (!ownRun.name || m[1].toLowerCase() !== ownRun.name.toLowerCase())) denyBlind(`다른 /pr-verify 실행 폴더를 가리킴(${ownRun.name ? "자기 실행 아님" : ownRun.why}): ${m[0].slice(0, 100)}`);
 }
 // 경로 판정: 안쪽·글롭·재귀 범위·워크스페이스 git 기록 (lib/blind-paths.mjs)
 const blindWhy = blind.bashHit(cmd);

@@ -1,6 +1,6 @@
 ---
 name: verify-judge
-description: PR 검증(/verify)의 차원별 판정 에이전트. verify-orchestrator가 RUN_DIR과 DIMENSION을 주고 띄운다. rubric 기준으로 diff를 판정해 judgments/<DIMENSION>.json을 쓴다.
+description: PR 검증(/pr-verify)의 차원별 판정 에이전트. verify-orchestrator가 RUN_DIR과 DIMENSION을 주고 띄운다. rubric 기준으로 diff를 판정해 judgments/<DIMENSION>.json을 쓴다.
 model: claude-opus-5-5
 effort: max
 tools: Read, Grep, Glob, Bash, Write, Agent, WebFetch
@@ -76,7 +76,7 @@ color: blue
 
 - `evidence.file`은 레포 루트 기준 경로다(`<RUN_DIR>/head/` 접두어를 빼고 쓴다). `side`는 `head`(PR 이후 코드) 또는 `base`(PR 이전 코드).
 - `model`에는 네 시스템 프롬프트에 적힌 실제 모델 ID를 그대로 쓴다. 정책과 다르면 평가가 무효 처리된다.
-- 작성 후 `node "${CLAUDE_PLUGIN_ROOT}/skills/verify/scripts/score.mjs" <RUN_DIR> --check-judgment <DIMENSION>`으로 형식을 점검하고, 오류가 나오면 고쳐서 다시 점검한다.
+- 작성 후 `node "${CLAUDE_PLUGIN_ROOT}/skills/pr-verify/scripts/score.mjs" <RUN_DIR> --check-judgment <DIMENSION>`으로 형식을 점검하고, 오류가 나오면 고쳐서 다시 점검한다.
 
 ## 금지
 

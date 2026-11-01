@@ -1,4 +1,4 @@
-// /verify diff 밖 결정적 신호: 갈림점(base) 기준으로 reach·ledger·co-change(·reach-compare)를 돌려
+// /pr-verify diff 밖 결정적 신호: 갈림점(base) 기준으로 reach·ledger·co-change(·reach-compare)를 돌려
 // RUN_DIR/signals/<tool>.json, RUN_DIR/signals/summary.md, RUN_DIR/replicas/를 만든다.
 // 신호는 판정 자료로만 붙인다. 판정 범위·점수는 바꾸지 않는다.
 // 도구는 플러그인에 없고 프로젝트가 준비한다. 위치: VERIFY_SIGNAL_BIN(reach·ledger-check·co-change), 피처맵은 VERIFY_FM_BIN

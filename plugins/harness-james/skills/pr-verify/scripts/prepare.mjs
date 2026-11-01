@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// /verify 1단계: 사전 점검 → 대상 해석 → base/head 트리 추출 → diff·구조 매핑 → 자동 신호 → context.json
+// /pr-verify 1단계: 사전 점검 → 대상 해석 → base/head 트리 추출 → diff·구조 매핑 → 자동 신호 → context.json
 // 사용: node prepare.mjs --session <세션 id> [repo] [target] [--base <ref>] [--full [--merge-ref <ref>]] [--resume <run_id>] [--season auto|bf|off] [--no-fetch] [--keep-runs N]
 //       node prepare.mjs --session <세션 id> --args-stdin   (위 인자 원문을 stdin으로. 셸식 따옴표로만 나누고 $·백틱·글롭은 확장 안 함)
 //   --session: Claude Code 세션 id(UUID). 실행을 .verify/sessions/<id>.json에 등록한다.
@@ -131,7 +131,7 @@ function resolveRepoAndTarget(positional) {
     if (hits.length === 1) profile = hits[0];
     else if (hits.length > 1) fail(`대상 ${targetInput}이 여러 레포에 있음 — 레포를 지정해 주세요`);
   }
-  if (!profile) fail(`레포를 지정해 주세요: /verify <${profiles.map((p) => p.repo.aliases[0]).join("|")}> [브랜치|SHA|pr:N]`);
+  if (!profile) fail(`레포를 지정해 주세요: /pr-verify <${profiles.map((p) => p.repo.aliases[0]).join("|")}> [브랜치|SHA|pr:N]`);
   return { profile, targetInput };
 }
 

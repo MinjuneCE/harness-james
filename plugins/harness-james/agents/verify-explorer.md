@@ -1,6 +1,6 @@
 ---
 name: verify-explorer
-description: PR 검증(/verify)용 읽기 전용 코드 탐색 에이전트. 판정·반증·오케스트레이터 에이전트가 구체적인 질문(호출처, 데이터 흐름, 스펙 대조)을 주고 띄운다. 판정은 하지 않고 file:line 근거로만 답한다.
+description: PR 검증(/pr-verify)용 읽기 전용 코드 탐색 에이전트. 판정·반증·오케스트레이터 에이전트가 구체적인 질문(호출처, 데이터 흐름, 스펙 대조)을 주고 띄운다. 판정은 하지 않고 file:line 근거로만 답한다.
 model: claude-opus-5-5
 effort: max
 tools: Read, Grep, Glob, Bash

@@ -133,10 +133,10 @@ test("unparsable commands that contain a push fail closed; unreadable input is i
   assert.equal(r.stdout.trim(), "");
 });
 
-test("deny reason names the plugin's verify skill", () => {
+test("deny reason names the plugin's pr-verify skill", () => {
   const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git push origin main" }, cwd: REPO }), encoding: "utf8" });
   const name = JSON.parse(readFileSync(resolve(dirname(HOOK), "../.claude-plugin/plugin.json"), "utf8")).name;
-  assert.ok(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason.includes(`/${name}:verify 게이트`));
+  assert.ok(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason.includes(`/${name}:pr-verify 게이트`));
 });
 
 test("pure helpers", () => {

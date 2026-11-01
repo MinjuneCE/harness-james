@@ -69,8 +69,8 @@ test("blind pass: own run, repos, rubrics, names, scoped git", () => {
 });
 test("blind: reasons name the blocked location", () => {
   assert.match(run("grep -rn TODO .").reason, /재귀 범위가 차단 위치\(보정 자료\)/);
-  assert.match(run("cat .verify/runs/@OTHER/judgments/TEST.json").reason, /다른 \/verify 실행/);
-  assert.match(run(["Read", { file_path: "@ROOT/.verify/runs/@OTHER/judgments/TEST.json" }]).reason, /다른 \/verify 실행/);
+  assert.match(run("cat .verify/runs/@OTHER/judgments/TEST.json").reason, /다른 \/pr-verify 실행/);
+  assert.match(run(["Read", { file_path: "@ROOT/.verify/runs/@OTHER/judgments/TEST.json" }]).reason, /다른 \/pr-verify 실행/);
   assert.match(run("git log -p").reason, /pathspec 없음/);
   assert.match(run('cd "$X" && grep -rn TODO .').reason, /값을 모르는 cd/);
 });

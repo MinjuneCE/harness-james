@@ -1,7 +1,7 @@
 # 설계 검증 루브릭 (design-verify) — 0.2.1 (2026-10-16)
 
 > 요약 — 0.2.1(0.2.0 보정 결과·결정 6건 + 0.2.1 결정 2건). 플러그인에는 판정 기준(이 폴더)만 들어 있고, 프로파일·보고서·보정 기록은 각 프로젝트(기본 `docs/evaluation/design/`)에 둔다.
-1. **11차원 59기준**: CON 7 · TRC 5 · REQ 5 · DEC 5 · EVD 6 · BEH 8 · FLR 5 · QAS 4 · THR 4 · RUN 4 · BND 6. `/verify` 코드와 안 겹친다. 기준 본문은 0.1.x에서 바뀌지 않았다.
+1. **11차원 59기준**: CON 7 · TRC 5 · REQ 5 · DEC 5 · EVD 6 · BEH 8 · FLR 5 · QAS 4 · THR 4 · RUN 4 · BND 6. `/pr-verify` 코드와 안 겹친다. 기준 본문은 0.1.x에서 바뀌지 않았다.
 2. refs 후보 60개 → 53개 유지·합침 + 6개 신설(EVD-01 출처 위계, EVD-05 수치 근거, EVD-06, CON-07, BEH-08, THR-04). TRC-03 필요성(제거 시험)이 refs TRC-03(고아)을 흡수했다. 변경표는 3장.
 3. S를 쓰는 22개 기준에 `스크립트 추출 대상`을 적었다. 기준마다 `범위`(절 14 · 문서 20 · 묶음 25)를 두어 바뀐 곳만 다시 검증한다.
 4. 판정은 REVISE / REVIEW_REQUIRED / PROCEED, **기준 위험도만** 쓴다(차원 점수 없음). 반증은 **critical·high 전부, 최대 8**(`limits.refute`), 순서는 심각도 → 확신 낮은 것(possible → likely → confirmed) → R(c). 상한 밖은 `uncertain` → REVIEW_REQUIRED.
@@ -22,7 +22,7 @@
 
 | 파일 | 내용 |
 |---|---|
-| [framework.md](framework.md) | 범위(보는 것·안 보는 것·`/verify` 경계), 심각도·신뢰도, 근거 규칙, 과잉 지적 방지, finding 필드·보고 형식, 판정 규칙 |
+| [framework.md](framework.md) | 범위(보는 것·안 보는 것·`/pr-verify` 경계), 심각도·신뢰도, 근거 규칙, 과잉 지적 방지, finding 필드·보고 형식, 판정 규칙 |
 | [traits.md](traits.md) | traits 12개 정의, 문서에서 trait를 알아보는 범용 단서 |
 | [rubrics/](rubrics/) | 차원별 기준: [CON](rubrics/CON.md) · [TRC](rubrics/TRC.md) · [REQ](rubrics/REQ.md) · [DEC](rubrics/DEC.md) · [EVD](rubrics/EVD.md) · [BEH](rubrics/BEH.md) · [FLR](rubrics/FLR.md) · [QAS](rubrics/QAS.md) · [THR](rubrics/THR.md) · [RUN](rubrics/RUN.md) · [BND](rubrics/BND.md) |
 | [profile-schema.md](profile-schema.md) | 프로파일 필드 정의(프로파일 파일은 프로젝트의 `docs/evaluation/design/profiles/<이름>.json`) |
@@ -60,7 +60,7 @@
 
 ## 2. 판정 체계 한눈에
 
-- 심각도 critical 60 · high 30 · medium 12 · low 4 · info 0. 신뢰도 confirmed 1.0 · likely 0.7 · possible 0.4 (`/verify`와 같음).
+- 심각도 critical 60 · high 30 · medium 12 · low 4 · info 0. 신뢰도 confirmed 1.0 · likely 0.7 · possible 0.4 (`/pr-verify`와 같음).
 - 기준 위험도 `R(c) = min(100, w × Σ 심각도 × 신뢰도)`.
 - **REVISE**: critical(confirmed·likely) 또는 평가 불완전. **REVIEW_REQUIRED**: `R(c) ≥ 임계값`, 반증 uncertain인 high+, 열린 X·H 확인이 걸린 high+, 원자료 미독. **PROCEED**: 그 밖.
 - 차원 품질 점수는 없다(보정 시험 뒤 재검토). BND-06은 판정에서 빠진다(상한 low).
@@ -129,7 +129,7 @@ refs = 참고 기준 후보 60개(목록은 플러그인에 넣지 않음).
 | CHG-01 | RUN-01 | 차원 합침(CHG + OPS → RUN) |
 | CHG-02 | RUN-02 | 같음 |
 | CHG-03 | RUN-03 | 같음 |
-| OPS-01 | RUN-04 | 코드 충돌(`/verify` OPS) 때문에 RUN으로. 거짓 통과(C12)를 더함 |
+| OPS-01 | RUN-04 | 코드 충돌(`/pr-verify` OPS) 때문에 RUN으로. 거짓 통과(C12)를 더함 |
 | OPS-02 | RUN-04 | 합침(관측이 장애 경로와 분리) |
 | SCP-01 | TRC-04 | 이동. "다른 주체의 소관"을 더함 |
 | SCP-02 | BND-06 | 이동 |
