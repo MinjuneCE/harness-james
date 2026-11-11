@@ -10,15 +10,16 @@ james가 쓰는 Claude Code 하네스를 묶은 플러그인 마켓플레이스�
 | | 스킬 `skill-check` + 에이전트 `skill-check-judge` | 스킬 폴더 하나를 규칙 검사와 rubric 판정으로 채점해 S~F 등급과 고칠 점을 알려 줘요. |
 | | 스킬 `pr-verify` + 에이전트 `verify-{orchestrator,judge,refuter,explorer}` | 프로파일이 있는 레포의 브랜치·PR을 보안·성능·아키텍처·신뢰성·관측성·테스트·접근성 차원에서 채점해 BLOCK·REVIEW_REQUIRED·PASS를 판정해요(Opus 5.5 max). 0.6.0부터 이름이 `verify`에서 `pr-verify`로 바뀌었어요(아래 "pr-verify"). |
 | | 스킬 `verify-design` + 에이전트 `design-verify-{judge,refuter}` | 설계 문서 묶음을 rubric 59기준으로 검증해요. light(무료) · standard · deep(Workflow). |
-| | 훅 5개 | push·merge 확인, 보호 브랜치 직접 push 거부, PR 전 pr-verify 게이트, herdr pane 계정 프로필 확인, verify 에이전트 가드(아래 "훅"). |
+| | 스킬 `pane-collab` | 역할을 나눈 여러 메인 세션(기본 impl·qa·scenarios·infra·pm)이 SendMessage와 공용 게시판으로 일을 주고받는 규칙, 메시지 양식, 게시판 CLI(아래 "pane-collab"). 0.7.0에서 더했어요. |
+| | 훅 6개 | push·merge 확인, 보호 브랜치 직접 push 거부, PR 전 pr-verify 게이트, herdr pane 계정 프로필 확인, verify 에이전트 가드, 꺼 둔 pane-collab 역할에게 가는 SendMessage 거부(아래 "훅"). |
 | `work-trace` | mod | 세션 오른쪽 패널에 작업 진행, 막힌 곳, 모델이 무엇을 왜 골랐는지를 실시간으로 보여 줘요. |
 | `context-band` | mod | 프롬프트 바로 위에 컨텍스트 사용량, 자동 압축까지 남은 양, 메모리 파일, 비용, 사용량 한도를 한 줄로 보여 줘요. |
 
 ## 준비
 
 - **Node 18 이상이 PATH에 있어야 해요.** 훅과 스킬 스크립트가 모두 `node`로 돌아요.
-  - 가드 훅 5개는 모두 `onFailure: block`이에요(아래 "훅이 하는 일"). node를 PATH에서 못 찾으면 **그 맥의 모든 세션에서** Bash 호출이 막히고, verify-guard가 걸린 Read·Edit·Grep 등도 막혀요.
-- **Claude Code 2.1.295 이상**(`onFailure` 필요). 2.1.316에서 시험했어요. work-trace·context-band는 mod API를 써서 최신판이 필요해요.
+  - 가드 훅 6개는 모두 `onFailure: block`이에요(아래 "훅이 하는 일"). node를 PATH에서 못 찾으면 **그 맥의 모든 세션에서** Bash 호출과 SendMessage가 막히고, verify-guard가 걸린 Read·Edit·Grep 등도 막혀요.
+- **Claude Code 2.1.295 이상**(`onFailure` 필요). 2.1.322에서 시험했어요. work-trace·context-band는 mod API를 써서 최신판이 필요해요.
 - git, gh(`pr-verify`의 `pr:N` 대상, 훅이 보는 명령).
 - **herdr**(pane-lead용). pane-lead는 herdr pane 안에서만 동작해요. herdr의 에이전트 상태 훅은 herdr가 관리하고 이 플러그인에는 없어요.
 - gitleaks(선택). skill-check 비밀값 검사에 써요. 없으면 정규식 검사로 대신해요. skill-check는 `python3`·`bash`가 있으면 대상의 .py·.sh 문법도 봐요.
@@ -91,9 +92,22 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
    - 플랫폼 검사 도구는 프로파일 `tools[]`에 `kind: "module"`로 더해요.
    - framework·scoring·rubrics는 플러그인 기본값을 쓰고, 프로젝트 평가 폴더에 같은 파일이 있으면 그쪽이 우선이에요.
 
+### pane-collab
+
+여러 메인 세션이 역할을 나눠 한 작업 공간에서 일할 때 써요. 역할 메인은 pane-lead 계보로 띄워요(기본 계보 `impl`·`qa`·`scn`·`infra`·`pm`, 세션 이름 `<계보>-main-N`). 메시지를 보내거나 받을 때 모델이 스스로 부르기도 하고, `/harness-james:pane-collab`으로 직접 불러도 돼요.
+
+1. 아무것도 준비하지 않아도 돼요. 기본 역할 다섯이 모두 켜져 있고, 게시판 `<작업 공간>/.loop/collab/board.jsonl`은 첫 `collab add` 때 생겨요. 팀 레포 안이라면 `.loop/`를 `.gitignore`에 넣기를 권해요.
+2. 선택: 프로젝트 몫은 게시판 옆에 둬요. 안내는 `skills/pane-collab/references/project-guide.md`예요.
+   - `.loop/collab/config.json`: 역할 더하기·켜고 끄기, 계보, 옛 이름, 어긋남 규칙. 틀은 `skills/pane-collab/examples/config.example.json`. 깨졌으면 기본값으로 돌고 CLI 출력에 `config` 칸이 붙어요.
+   - `.loop/collab/project.md`: 역할별로 혼자 고치는 것, worktree 표, 공유 자원, 프로젝트의 지킬 선. 스킬이 먼저 읽어요.
+3. 역할을 끄려면 `{ "roles": { "pm": false } }`. 그 역할은 `collab add --to`에서 거절되고, `pm-main-*`에게 가는 SendMessage는 훅 `role-switch-guard`가 막아요. 지금 값은 `collab roles`로 봐요.
+4. 어긋남 계산(`collab gaps`)은 게시판, pane-lead 등록부(`.research/pane-lead/<계보>/registry.json`), 티켓 장부(선택, 기본 `.loop/tickets`)를 대어 봐요. 티켓 장부가 없으면 티켓 규칙은 조용히 건너뛰어요.
+5. CLI는 `node <플러그인>/skills/pane-collab/bin/collab.mjs <명령>`이에요. 스킬을 부르면 경로가 채워진 명령이 보여요. 작업 공간은 `--root` > `COLLAB_ROOT` > `PANE_LEAD_ROOT` > `CLAUDE_PROJECT_DIR` > cwd 위로 처음 만나는 `.loop/collab` > cwd 순서로 찾아요.
+
 ### 권한
 
 - pr-verify·verify-design은 `node <플러그인>/skills/<스킬>/scripts/*.mjs`를 Bash로 실행해요. 자주 쓰면 `Bash(node:*)` 허용을 고려해요.
+- pane-collab은 스킬 `allowed-tools`로 자기 collab CLI 실행과 양식 읽기를 허용해 둬요. 스킬을 부른 세션에서는 확인 창 없이 돌아요(2.1.322 default 모드에서 확인, 스킬 없이 같은 명령은 확인을 요구).
 
 ## 훅이 하는 일
 
@@ -106,8 +120,9 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 | require-verify-before-pr | pr-verify 프로파일이 있는 레포만 | `gh pr create` 전에 지금 HEAD의 pr-verify 리포트를 봐요. 없거나 BLOCK·REVIEW_REQUIRED면 확인을 받아요. 장기 브랜치(`long_lived_branches`) PR은 갈림점 기준 `--full` 리포트가 있어야 넘어가요. 확인 사유에 어느 검증 범위에도 안 든 커밋 수를 붙여요. worktree·다른 곳의 clone에서도 레포를 찾아요. 다른 레포에서는 조용해요. |
 | require-pane-account | `CLAUDE_CONFIG_DIR`을 쓰는 세션만 | `herdr pane split`·`tab create`·`workspace create`에 `--env CLAUDE_CONFIG_DIR=…`가 없으면 거부해요. herdr는 새 pane을 herdr 서버의 환경으로 띄워서, 그대로면 서브가 기본 계정으로 떠요. 값을 직접 준 명령과 원격 대상(`--machine`·`--remote`)은 통과해요. 기본 프로필 세션에서는 바로 끝나요. |
 | verify-guard | verify 에이전트만 | 훅 입력의 `agent_type`이 `harness-james:verify-*`일 때만 판정해요(쓰기 제한, 보정·정답 자료와 다른 실행 폴더, 프로젝트가 `guard.json` `blind`로 정한 기록을 경로 규칙으로 차단 — 재귀 검색·glob·git 기록 포함, 하위 에이전트 제한). /pr-verify 1단계가 실행을 세션에 등록하고, 판정 에이전트는 그 세션의 실행 폴더만 읽어요. 다른 세션은 내장 모듈과 정규식 하나만 쓰고 바로 끝나요. |
+| role-switch-guard | `.loop/collab/config.json`에서 역할을 끈 작업 공간만 | SendMessage 받는 이름이 꺼진 역할의 메인(`<계보>-main-*`, 옛 계보 포함)이면 거부해요. 꺼 둔 역할을 메시지로 깨워 토큰을 쓰지 않게 하려는 거예요. 프로젝트 설정이 없거나 깨졌으면 아무것도 막지 않아요. 설정은 pane-collab CLI와 같은 모듈로 읽어요. |
 
-- **가드가 실패하면 막아요(`onFailure: block`, Claude Code 2.1.295 이상):** 위 다섯 훅과 pane-lead 서브의 sub-guard가 해당해요. 가드가 시작하지 못하거나(node·스크립트를 못 찾음), 0·2 밖의 코드로 끝나거나, 정한 시간(5~15초)을 넘기면 그 도구 호출을 막고 `… failed; blocking because onFailure is "block"`(시간 초과는 `timed out; blocking …`)과 원인을 보여 줘요. 이 필드가 없으면 그런 실패는 조용히 통과해서 가드가 꺼진 것과 같아요. 2.1.316에서 플러그인 훅으로 확인했어요.
+- **가드가 실패하면 막아요(`onFailure: block`, Claude Code 2.1.295 이상):** 위 여섯 훅과 pane-lead 서브의 sub-guard가 해당해요. 가드가 시작하지 못하거나(node·스크립트를 못 찾음), 0·2 밖의 코드로 끝나거나, 정한 시간(5~15초)을 넘기면 그 도구 호출을 막고 `… failed; blocking because onFailure is "block"`(시간 초과는 `timed out; blocking …`)과 원인을 보여 줘요. 이 필드가 없으면 그런 실패는 조용히 통과해서 가드가 꺼진 것과 같아요. 2.1.316에서 플러그인 훅(Bash)으로, 2.1.322에서 SendMessage 훅으로 확인했어요.
 - push 확인과 보호 브랜치 거부 메시지는 "프로젝트 규칙:"으로 시작해요.
 - 플러그인 에이전트에서는 frontmatter `hooks`가 돌지 않아서, verify-guard는 플러그인 `hooks/hooks.json`에 걸려 있어요.
 
@@ -126,6 +141,7 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 (cd plugins/harness-james/skills/skill-check && SKILL_CHECK_RUNS_DIR="$(mktemp -d)" node --test test/)
 (cd plugins/harness-james/skills/pr-verify && node --test test/)
 (cd plugins/harness-james/skills/verify-design && node --test test/ && node scripts/check-workflow.mjs)
+(cd plugins/harness-james/skills/pane-collab && node --test test/)
 (cd plugins/harness-james/hooks && node --test test/)
 # mod
 claude plugin test plugins/work-trace
