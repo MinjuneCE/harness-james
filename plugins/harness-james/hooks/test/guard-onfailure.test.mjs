@@ -63,6 +63,7 @@ test("hooks.json: the guards are wired where expected", () => {
     "Bash require-pr-flow",
     "Bash require-pane-account",
     "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Grep|Glob|Agent|Task verify-guard",
+    "SendMessage role-switch-guard",
   ];
   for (const w of want) assert.ok(wired.includes(w), `${w} missing; wired: ${wired.join(", ")}`);
   assert.equal(wired.length, want.length, `unexpected guards: ${wired.join(", ")}`);

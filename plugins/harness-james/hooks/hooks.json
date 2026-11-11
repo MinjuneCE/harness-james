@@ -15,6 +15,12 @@
         "hooks": [
           { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/verify-guard.mjs"], "timeout": 10, "onFailure": "block" }
         ]
+      },
+      {
+        "matcher": "SendMessage",
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/role-switch-guard.mjs"], "timeout": 5, "onFailure": "block" }
+        ]
       }
     ]
   }
