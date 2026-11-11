@@ -1,0 +1,28 @@
+{
+  "_설명": "pane-collab 프로젝트 설정 틀. <작업 공간>/.loop/collab/config.json으로 복사해 필요한 칸만 남겨요. 빠진 칸은 기본값이고, _로 시작하는 키는 설명이라 읽지 않아요. 안내: references/project-guide.md",
+  "roles": {
+    "_설명": "역할 더하기·켜고 끄기. 기본 impl·qa·scenarios·infra·pm은 모두 켜져 있어요. false인 역할은 add --to에 못 넣고, 그 메인에게 가는 SendMessage는 훅이 막아요. 켜고 끄는 건 사용자가 정해요.",
+    "pm": false,
+    "design": true
+  },
+  "lineages": {
+    "_설명": "pane-lead 계보(세션 <계보>-main-N, 등록부 .research/pane-lead/<계보>/) → 역할. 기본은 impl·qa·scn·infra·pm이에요.",
+    "dsg": "design"
+  },
+  "oldLineages": {
+    "_설명": "이름을 바꾼 계보. 옛 이름 메인이 다음 인계로 바뀔 때까지 훅이 같이 봐요."
+  },
+  "roleAliases": {
+    "_설명": "이름을 바꾼 역할. 게시판이 옛 이름을 지금 이름으로 읽고 써요."
+  },
+  "ownerAliases": {
+    "_설명": "티켓 route와 '<이름> 몫' 글에 쓰는 다른 이름 → 주인. 역할·계보·옛 이름과 그 대문자 꼴은 저절로 들어가요.",
+    "디자인": "design"
+  },
+  "gaps": {
+    "_설명": "어긋남 계산. tickets는 티켓 장부 폴더(없으면 티켓 규칙을 건너뛰어요, false면 끔).",
+    "staleHours": 24,
+    "rules": { "G7": false, "G8": false, "G9": false },
+    "tickets": ".loop/tickets"
+  }
+}

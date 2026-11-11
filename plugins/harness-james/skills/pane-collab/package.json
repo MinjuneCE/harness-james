@@ -1,0 +1,10 @@
+{
+  "name": "pane-collab",
+  "private": true,
+  "type": "module",
+  "description": "Message templates and shared board for role sessions (default impl / qa / scenarios / infra / pm). Project settings live in <workspace>/.loop/collab/config.json. Zero dependencies.",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
