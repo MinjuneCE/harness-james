@@ -85,13 +85,13 @@ test('main: PANE_LEAD_MODEL / PANE_LEAD_MAIN_EFFORT=none for experiments; refuse
   assert.match(bad.error, /already runs oc-other/)
 })
 
-test('spawn: sub settings deny push/PR, env role sub, no --effort, start prompt names brief and result', () => {
+test('spawn: sub settings deny push/PR, env role sub, no --effort, start prompt calls pane-sub with brief and result', () => {
   const { w, out, b } = withSubs(1)
   const r = out[0]
   assert.equal(r.ok, true, JSON.stringify(r))
   const a = w.state.agents[r.sub.pane]
   assert.ok(!a.args.includes('--effort'))
-  assert.equal(a.args[a.args.indexOf('--model') + 1], 'claude-opus-5-5')
+  assert.equal(a.args[a.args.indexOf('--model') + 1], 'claude-opus-5-5', 'no model asked for: the sub runs Opus, also with the Fable weekly limit at 10%')
   assert.equal(a.session, r.sub.sessionId)
   const s = JSON.parse(readFileSync(a.args[a.args.indexOf('--settings') + 1], 'utf8'))
   assert.equal(s.env.PANE_LEAD_ROLE, 'sub')
@@ -102,8 +102,7 @@ test('spawn: sub settings deny push/PR, env role sub, no --effort, start prompt 
   const guard = s.hooks.PreToolUse[0].hooks[0].command.match(/'([^']+)'/)[1]
   assert.ok(guard.endsWith('/hooks/sub-guard.mjs') && existsSync(guard), guard)
   assert.equal(s.hooks.PreToolUse[0].hooks[0].onFailure, 'block', 'a sub-guard that fails must block, not pass')
-  assert.match(a.prompts[0], new RegExp(b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-  assert.match(a.prompts[0], /\.research\/out\/s1\.md/)
+  assert.equal(a.prompts[0], `/harness-james:pane-sub normal none ${b} ${join(w.root, '.research', 'out', 's1.md')}`, 'the start prompt calls the pane-sub skill with kind, layer, brief and result')
   const reg = w.registry().subs.s1
   assert.equal(reg.status, 'running')
   assert.equal(reg.kind, 'research')
@@ -137,6 +136,35 @@ test('spawn: closed sub frees a slot; dead panes (closed outside pane-lead) are 
   })
   assert.equal(w.run(['spawn', 's7', '--brief', b]).ok, true)
   assert.equal(w.registry().subs.s3.status, 'gone')
+})
+
+test('spawn --env: goes into the sub settings env and the registry row, never the pane; reserved and malformed names are refused', () => {
+  const w = world()
+  w.startMain()
+  const r = w.run(['spawn', 'bill-fix', '--brief', w.brief(), '--env', 'COLLAB_PROJECT=billing-v2,NOTE_X=1'])
+  assert.equal(r.ok, true, JSON.stringify(r))
+  const settingsOf = (pane) => {
+    const a = w.state.agents[pane]
+    return JSON.parse(readFileSync(a.args[a.args.indexOf('--settings') + 1], 'utf8'))
+  }
+  const s = settingsOf(r.sub.pane)
+  assert.equal(s.env.COLLAB_PROJECT, 'billing-v2')
+  assert.equal(s.env.NOTE_X, '1')
+  assert.equal(s.env.PANE_LEAD_ROLE, 'sub', 'the role stays sub')
+  assert.equal(s.env.GIT_CONFIG_KEY_0, 'url.pane-lead-sub-push-is-main-only://.pushInsteadOf', 'the push block stays')
+  assert.ok(s.permissions.deny.includes('Bash(git push *)'))
+  assert.deepEqual(w.state.panes[r.sub.pane].env, [], 'still nothing on the pane')
+  assert.deepEqual(w.registry().subs['bill-fix'].env, { COLLAB_PROJECT: 'billing-v2', NOTE_X: '1' })
+  assert.deepEqual(w.run(['status']).subs.find((x) => x.name === 'bill-fix').env, { COLLAB_PROJECT: 'billing-v2', NOTE_X: '1' }, 'status shows it')
+  for (const bad of ['PANE_LEAD_ROLE=main', 'GIT_CONFIG_COUNT=0', 'CLAUDE_CONFIG_DIR=/x', 'lower=1', 'NOVALUE', 'A=', 'A=1,,B=2']) {
+    const x = w.run(['spawn', 'bad-env', '--brief', w.brief(), '--env', bad])
+    assert.equal(x.code, 2, bad)
+    assert.equal(w.registry().subs['bad-env'], undefined, `${bad}: nothing reserved`)
+  }
+  const plain = w.run(['spawn', 'plain', '--brief', w.brief()])
+  assert.equal(plain.ok, true, JSON.stringify(plain))
+  assert.equal(w.registry().subs.plain.env, undefined)
+  assert.equal(settingsOf(plain.sub.pane).env.COLLAB_PROJECT, undefined)
 })
 
 test('spawn: rejects bad names, missing brief, a name already live elsewhere', () => {

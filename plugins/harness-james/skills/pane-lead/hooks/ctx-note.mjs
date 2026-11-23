@@ -4,18 +4,17 @@
 // Toggle: node ctx-note.mjs off|on|status  (file <state>/ctx-note.off)
 // Any failure: silent exit 0.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import { stateDir } from '../lib/common.mjs'
 import { contextUsage, findTranscript } from '../lib/ctx.mjs'
 
 export const THRESHOLD = 50
 export const STEP = 5
 
-export function stateDir(env = process.env) {
-  return env.PANE_LEAD_STATE_DIR || join(homedir(), '.local', 'state', 'pane-lead')
-}
+export { stateDir }
 
 export function offFile(env = process.env) {
   return join(stateDir(env), 'ctx-note.off')

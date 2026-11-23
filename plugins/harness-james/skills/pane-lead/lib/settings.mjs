@@ -51,6 +51,24 @@ export function subSettings({ prefix, root }, extra) {
   return extra ? merge(s, extra) : s
 }
 
+// spawn --env NAME=value[,NAME2=value2]: extra env for one sub, written into its settings env (never the pane).
+// A skill that starts a sub for one purpose passes its marker here (e.g. COLLAB_PROJECT for a project-sub).
+// The role, lineage, account and push-block names stay ours.
+const ENV_NAME = /^[A-Z][A-Z0-9_]*$/
+const ENV_RESERVED = /^(PANE_LEAD_|GIT_CONFIG_|CLAUDE_CONFIG_DIR$)/
+export function parseEnv(text) {
+  const env = {}
+  for (const pair of String(text).split(',')) {
+    const i = pair.indexOf('=')
+    const k = (i < 0 ? pair : pair.slice(0, i)).trim()
+    const v = i < 0 ? '' : pair.slice(i + 1).trim()
+    if (!ENV_NAME.test(k) || !v) throw new Error(`--env takes NAME=value[,NAME=value], not ${pair || '(empty)'}`)
+    if (ENV_RESERVED.test(k)) throw new Error(`--env cannot set ${k}`)
+    env[k] = v
+  }
+  return env
+}
+
 /** Deep merge; arrays concatenate (for test-only extras such as permissions.ask). */
 export function merge(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) return [...a, ...b]

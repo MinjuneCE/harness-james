@@ -9,16 +9,22 @@ export const CLI = 'pane-lead'
 export const BIN = join(HOME, 'bin', 'pane-lead.mjs')
 // Slash command for this skill: a plugin skill is /<plugin>:pane-lead (the short /pane-lead also resolves
 // when no other skill shares the name); a skill under ~/.claude/skills stays /pane-lead.
-export function skillCommand(home = HOME) {
+export function pluginName(home = HOME) {
   try {
     const { name } = JSON.parse(readFileSync(join(home, '..', '..', '.claude-plugin', 'plugin.json'), 'utf8'))
-    if (name) return `/${name}:${CLI}`
-  } catch {}
-  return `/${CLI}`
+    return typeof name === 'string' && name ? name : null
+  } catch {
+    return null
+  }
+}
+export function skillCommand(home = HOME, skill = CLI) {
+  const name = pluginName(home)
+  return name ? `/${name}:${skill}` : `/${skill}`
 }
 export const SKILL_CMD = skillCommand()
 
 export const MAX_SUBS = () => Number(process.env.PANE_LEAD_MAX_SUBS) || 5
+// The main's model. Sub models are chosen per spawn (lib/fable-limit.mjs).
 export const MODEL = () => process.env.PANE_LEAD_MODEL || 'claude-opus-5-5'
 // Main effort: 'max' unless overridden; 'none' omits --effort (experiments with models that lack it).
 export const MAIN_EFFORT = () => process.env.PANE_LEAD_MAIN_EFFORT || 'max'
@@ -34,6 +40,9 @@ export class PlError extends Error {
 }
 export const fail = (message, next, data) => new PlError(message, { next, code: 1, data })
 export const usage = (message, next) => new PlError(message, { next, code: 2 })
+
+/** User-level state shared by the CLI and the hooks (ctx-note toggle, limit readings, model-layer switch). */
+export const stateDir = (env = process.env) => env.PANE_LEAD_STATE_DIR || join(homedir(), '.local', 'state', 'pane-lead')
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 export const now = () => new Date().toISOString()

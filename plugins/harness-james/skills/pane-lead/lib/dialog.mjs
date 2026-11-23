@@ -76,8 +76,41 @@ export function parseDialog(screen) {
   }
   // Measured: after 3 consecutive auto-mode denials Claude Code asks "Do you want to proceed?" itself
   // (and auto-denies in ~2 min). Yes there overrides the classifier, so it is flagged.
-  const kind = context.some((l) => /Auto mode classifier/i.test(l)) ? 'classifier' : 'permission'
+  const kind = isModelLimit({ question, options, context }) ? 'model-limit' : context.some((l) => /Auto mode classifier/i.test(l)) ? 'classifier' : 'permission'
   return { question, options, context, kind }
+}
+
+// The model-switch dialog at a model's weekly limit. Nobody has seen it on screen yet (the limit has to be used
+// up first), so this goes by the strings of Claude Code 2.1.325 and matches loosely:
+//   question  "You've reached your Fable limit for this week. Switch models?" | "<model> now runs on usage credits. Switch models?"
+//   choices   "Switch to <model>" (For this session), then "Continue with usage credits" (Stay on <model> for this
+//             session) when credits are on, else "Not now" (<model> needs usage credits, which …)
+// A "Switch to …" option is required, plus either the limit wording around it or the other choice's label; a
+// permission dialog whose command merely mentions credits stays a permission dialog. Anything else that cannot be
+// read as numbered options stays on the `dialog: null` path.
+const SWITCH_TO = /^Switch to\b/i
+const LIMIT_WORDS = /switch models|usage credits|reached your .{0,40}limit/i
+const OTHER_CHOICE = /^(Not now|Continue with usage credits)\b/i
+
+function isModelLimit({ question, options, context }) {
+  if (!options.some((o) => SWITCH_TO.test(o.label))) return false
+  return LIMIT_WORDS.test([question, ...context].join('\n')) || options.some((o) => OTHER_CHOICE.test(o.label))
+}
+
+/** Option number of "Switch to <model>" on a model-limit dialog (the Opus one when several are listed). */
+export function switchOption(d) {
+  const all = d?.options.filter((o) => SWITCH_TO.test(o.label)) ?? []
+  return (all.find((o) => /opus/i.test(o.label)) ?? all[0])?.n
+}
+
+// What Claude Code leaves on screen when that dialog went unanswered or could not be shown:
+//   "Claude stopped here because <model> now requires usage credits. … send a message to be asked again, or switch models with /model"
+const LIMIT_STOP = /(requires|needs|uses|runs on) usage credits|limit reached|reached your .{0,40}limit|switch models/i
+
+/** The first of `lines` (a screen tail) that reads like a model-limit stop, or null. */
+export function limitNotice(lines) {
+  for (const l of String(lines ?? '').split('\n')) if (LIMIT_STOP.test(l)) return l.trim()
+  return null
 }
 
 /** Option number for "allow once": exactly "Yes" (never "…don't ask again" / "…switch to auto"). */

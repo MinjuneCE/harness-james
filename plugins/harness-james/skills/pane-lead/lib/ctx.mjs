@@ -16,6 +16,8 @@ const WINDOWS = [
   // Measured on the band: claude-opus-5-5 → 1.0M (10/15), claude-haiku-5-5 → 1.0M (pl-cli, 10/15).
   [/^claude-opus-5-5/, 1_000_000],
   [/^claude-haiku-5-5/, 1_000_000],
+  // claude-fable-5-2 → 1.0M (modelUsage.contextWindow, 2026-11-16). Sub panes run it while the Fable weekly limit lasts.
+  [/^claude-fable-5-2/, 1_000_000],
   // Explicit 1M variants.
   [/\[1m\]$/, 1_000_000],
 ]

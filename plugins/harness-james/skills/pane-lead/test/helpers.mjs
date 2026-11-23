@@ -1,7 +1,7 @@
 // Test harness: temp lineage root + fake herdr state; runs the CLI as a child process.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,8 +9,26 @@ import { fileURLToPath } from 'node:url'
 export const HOME = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const BIN = join(HOME, 'bin', 'pane-lead.mjs')
 const FAKE = join(HOME, 'test', 'fake-herdr.mjs')
+const FAKE_CLAUDE = join(HOME, 'test', 'fake-claude.mjs')
 
-export function world({ width = 335, height = 78, foreign = true } = {}) {
+/** A get_usage answer as measured on 2026-11-16 (2.1.325), cut down to the rate limits: percent 0-100. */
+export const usageAnswer = (fable, { resetsAt = new Date(Date.now() + 3 * 86400_000).toISOString(), weekly = 12 } = {}) => ({
+  session: { total_cost_usd: 0 },
+  rate_limits_available: true,
+  rate_limits: {
+    five_hour: { utilization: 13, resets_at: resetsAt },
+    seven_day: { utilization: weekly, resets_at: resetsAt },
+    ...(fable === null ? { model_scoped: [] } : { model_scoped: [{ display_name: 'Fable', utilization: fable, resets_at: resetsAt }] }),
+    limits: [
+      { kind: 'session', group: 'session', percent: 13, resets_at: resetsAt, scope: null },
+      { kind: 'weekly_all', group: 'weekly', percent: weekly, resets_at: resetsAt, scope: null },
+      ...(fable === null ? [] : [{ kind: 'weekly_scoped', group: 'weekly', percent: fable, resets_at: resetsAt, scope: { model: { id: null, display_name: 'Fable' }, surface: null } }]),
+    ],
+  },
+  behaviors: null,
+})
+
+export function world({ width = 335, height = 78, foreign = true, skill = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'pl-cli-'))
   const stateFile = join(root, 'fake-state.json')
   const state = {
@@ -26,6 +44,16 @@ export function world({ width = 335, height = 78, foreign = true } = {}) {
   }
   writeFileSync(stateFile, JSON.stringify(state))
   mkdirSync(join(root, '.research', 'out'), { recursive: true })
+  // The sub's rules live in the pane-sub skill; spawn checks the sub can load it. Tests name a stand-in outright
+  // (<root>/.claude stays free for the account tests); `skill: false` leaves it out.
+  const skillDir = join(root, 'fake-skills', 'pane-sub')
+  if (skill) {
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: pane-sub\n---\n')
+  }
+  // The account's Fable weekly limit as the fake claude answers it: 10% unless a test says otherwise.
+  const usageFile = join(root, 'fake-usage.json')
+  writeFileSync(usageFile, JSON.stringify(usageAnswer(10)))
   const w = {
     root,
     stateFile,
@@ -48,6 +76,9 @@ export function world({ width = 335, height = 78, foreign = true } = {}) {
           HERDR_PANE_ID: pane,
           PANE_LEAD_HERDR: FAKE,
           PANE_LEAD_FAKE_STATE: stateFile,
+          PANE_LEAD_CLAUDE: FAKE_CLAUDE,
+          PANE_LEAD_SUB_SKILL_DIR: skillDir,
+          PANE_LEAD_FAKE_USAGE: usageFile,
           PANE_LEAD_PREFIX: 't',
           PANE_LEAD_ROOT: root,
           ...env,
@@ -77,6 +108,22 @@ export function world({ width = 335, height = 78, foreign = true } = {}) {
       writeFileSync(join(dir, 'registry.json'), JSON.stringify({ version: 1, prefix: 't', root, createdAt: main.startedAt, main, mains: [], pending: null, subs: {} }, null, 2))
       w.patch((s) => (s.agents['w9:p1'] = { name: main.name, status: 'working', session: main.sessionId }))
       return { main }
+    },
+    /** Sets what the next get_usage probe answers (an object, or null for "no login") and drops the cached reading. */
+    usage(answer) {
+      if (answer === null) rmSync(usageFile, { force: true })
+      else writeFileSync(usageFile, JSON.stringify(answer))
+      rmSync(join(root, '.local', 'state', 'pane-lead', 'fable-limit'), { recursive: true, force: true })
+    },
+    /** Every probe so far: [{ args, configDir, role, cwd }]. */
+    usageCalls() {
+      const f = `${usageFile}.calls`
+      return existsSync(f) ? readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []
+    },
+    /** The cached Fable reading of an account (default | dir-<config dir>), or null. */
+    fableRecord(account = 'default') {
+      const f = join(root, '.local', 'state', 'pane-lead', 'fable-limit', `${account}.json`)
+      return existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : null
     },
     brief(name = 'b') {
       const p = join(root, '.research', 'tasks', `${name}.md`)

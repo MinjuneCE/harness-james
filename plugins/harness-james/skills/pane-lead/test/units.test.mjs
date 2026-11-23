@@ -119,6 +119,33 @@ test('sub-guard: push / PR create / merge variants are caught, look-alikes are n
     assert.equal(verdict(c), null, c)
 })
 
+test('sub-guard: PR create/merge through gh api (REST, graphql) and curl are caught; reads are not', () => {
+  for (const c of [
+    'gh api repos/o/r/pulls -f title=x -f head=b -f base=main',
+    'gh api -X POST repos/o/r/pulls --input body.json',
+    'gh api --method POST /repos/o/r/pulls -F draft=true',
+    'gh api "repos/o/r/pulls" --raw-field title=x',
+    'gh api repos/o/r/pulls \\\n  -f title=x',
+    "gh api graphql -f query='mutation { createPullRequest(input:{repositoryId:\"x\"}) { pullRequest { url } } }'",
+    "gh api graphql -F query=@- <<'Q'\nmutation { mergePullRequest(input:{pullRequestId:\"x\"}) { clientMutationId } }\nQ",
+    "gh api graphql -f query='mutation{enablePullRequestAutoMerge(input:{pullRequestId:\"x\"}){clientMutationId}}'",
+    'curl -X POST -H "Authorization: token $T" https://api.github.com/repos/o/r/pulls -d @body.json',
+    'curl --request PUT https://api.github.com/repos/o/r/pulls/3/merge',
+  ])
+    assert.ok(verdict(c), c)
+  for (const c of [
+    'gh api repos/o/r/pulls',
+    'gh api repos/o/r/pulls/3',
+    "gh api repos/o/r/pulls --jq '.[].number'",
+    'gh api repos/o/r/pulls/3/comments -f body=hi',
+    'gh api repos/o/r/pulls > l.json && rm -f l.json',
+    "gh api graphql -f query='query { repository(owner:\"o\",name:\"r\") { pullRequests(first:5) { nodes { number } } } }'",
+    'curl https://api.github.com/repos/o/r/pulls',
+    'curl -s https://api.github.com/repos/o/r/pulls/3 | jq .title',
+  ])
+    assert.equal(verdict(c), null, c)
+})
+
 test('sub-guard hook: prints a deny decision on stdin JSON, nothing otherwise', async () => {
   const { spawnSync } = await import('node:child_process')
   const hook = new URL('../hooks/sub-guard.mjs', import.meta.url).pathname
