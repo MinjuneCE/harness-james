@@ -1,0 +1,8 @@
+{
+  "name": "code-conventions",
+  "version": "0.1.0",
+  "description": "프로젝트에 묶이지 않은 코드 컨벤션(공통·서버·화면 코드 규칙, 스택 문서 예시 둘)과, 그 요약을 설정 폴더의 rules/에 깔아 파일 종류마다 자동으로 읽히게 하는 설치 스킬.",
+  "author": {
+    "name": "james"
+  }
+}
