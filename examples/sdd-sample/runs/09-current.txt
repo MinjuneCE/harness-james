@@ -1,0 +1,5 @@
+$ node plugins/harness-james/skills/decision-log/bin/decision-check.mjs examples/sdd-sample/specs/001-export-retention --current
+D3  내보낸 파일의 보관 기간은 30일이다.  [plan.md, spec.md]
+D2  기간이 지난 파일은 하루 한 번 묶어서 지운다.  [plan.md, spec.md]
+유효한 결정 2건 · 최신 D3 · 다음 번호 D4
+(종료 코드 0)

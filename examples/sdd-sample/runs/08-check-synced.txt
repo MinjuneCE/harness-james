@@ -1,0 +1,8 @@
+$ node plugins/harness-james/skills/decision-log/bin/decision-check.mjs examples/sdd-sample/specs/001-export-retention
+PASS  ledger         결정 3건, 최신 D3, 대체됨 1건
+INFO  proposal       사용자 답을 기다리는 제안 1건
+        P1 (36줄) 기간이 지난 파일을 지울 때 알릴 곳이 정해지지 않았다
+PASS  header         plan.md  D3까지 반영(최신)
+PASS  header         spec.md  D3까지 반영(최신)
+결과: FAIL 0 · WARN 0 · INFO 1 · 0.00s
+(종료 코드 0)

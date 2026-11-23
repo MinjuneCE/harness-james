@@ -1,0 +1,3 @@
+$ node plugins/harness-james/skills/decision-log/bin/decision-check.mjs examples/sdd-sample/specs/001-export-retention --sync-table
+표를 다시 만들었다: /private/tmp/harness-james/examples/sdd-sample/specs/001-export-retention/decisions.md
+(종료 코드 0)

@@ -1,0 +1,22 @@
+--- plan.md
++++ plan.md
+@@ -1,6 +1,6 @@
+ # Implementation Plan: 내보낸 파일 보관과 삭제
+ 
+-**반영한 결정**: ~D2 ([decisions.md](decisions.md))
++**반영한 결정**: ~D3 ([decisions.md](decisions.md))
+ 
+ **Branch**: `001-export-retention` | **Date**: 2026-11-20 | **Spec**: [spec.md](spec.md)
+ 
+@@ -30,9 +30,9 @@
+ 
+ ## 판정
+ 
+-1. 보관 기간은 설정값 `EXPORT_RETENTION_DAYS`로 두고 기본값은 90이다. (D1)
++1. 보관 기간은 설정값 `EXPORT_RETENTION_DAYS`로 두고 기본값은 30이다. (D3)
+ 2. 삭제 작업은 하루 한 번 돌고, 기간이 지난 파일을 묶어서 지운다. (D2)
+-3. 지운 뒤 알림은 보내지 않는다.
++3. 지운 뒤 알림은 보내지 않는다. 알릴 곳이 정해지면 더한다(decisions.md의 제안 P1).
+ 
+ ## Project Structure
+ 

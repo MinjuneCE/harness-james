@@ -1,0 +1,6 @@
+$ node plugins/harness-james/skills/decision-log/bin/decision-check.mjs examples/sdd-sample/specs/001-export-retention
+PASS  ledger         결정 2건, 최신 D2, 대체됨 0건
+PASS  header         plan.md  D2까지 반영(최신)
+PASS  header         spec.md  D2까지 반영(최신)
+결과: FAIL 0 · WARN 0 · INFO 0 · 0.00s
+(종료 코드 0)

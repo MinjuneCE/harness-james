@@ -1,0 +1,11 @@
+$ node plugins/harness-james/skills/decision-log/bin/decision-check.mjs examples/sdd-sample/specs/001-export-retention
+PASS  ledger         결정 3건, 최신 D3, 대체됨 1건
+INFO  proposal       사용자 답을 기다리는 제안 1건
+        P1 (36줄) 기간이 지난 파일을 지울 때 알릴 곳이 정해지지 않았다
+PASS  header         plan.md  D3까지 반영(최신)
+WARN  stale-cite     plan.md  대체된 결정을 가리키는 줄 1개
+        plan.md:33 D1 (대체한 결정: D3)
+PASS  header         spec.md  D3까지 반영(최신)
+WARN  reflect        plan.md  반영 위치로 적혔지만 문서에 번호 인용이 없다: D3
+결과: FAIL 0 · WARN 2 · INFO 1 · 0.00s
+(종료 코드 0)

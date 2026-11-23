@@ -1,0 +1,6 @@
+$ node plugins/harness-james/skills/spec-kit/bin/spec-kit.mjs feature examples/sdd-sample export-retention
+만듦      /private/tmp/harness-james/examples/sdd-sample/specs/001-export-retention/spec.md
+만듦      /private/tmp/harness-james/examples/sdd-sample/specs/001-export-retention/plan.md
+만듦      /private/tmp/harness-james/examples/sdd-sample/specs/001-export-retention/decisions.md
+기능 폴더 examples/sdd-sample/specs/001-export-retention
+(종료 코드 0)

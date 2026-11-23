@@ -1,0 +1,10 @@
+$ node plugins/harness-james/skills/spec-kit/bin/spec-kit.mjs init examples/sdd-sample
+만듦      /private/tmp/harness-james/examples/sdd-sample/.specify/templates/spec-template.md
+만듦      /private/tmp/harness-james/examples/sdd-sample/.specify/templates/plan-template.md
+만듦      /private/tmp/harness-james/examples/sdd-sample/.specify/templates/tasks-template.md
+만듦      /private/tmp/harness-james/examples/sdd-sample/.specify/templates/checklist-template.md
+만듦      /private/tmp/harness-james/examples/sdd-sample/.specify/templates/constitution-template.md
+만듦      /private/tmp/harness-james/examples/sdd-sample/.specify/templates/LICENSE
+만듦      /private/tmp/harness-james/examples/sdd-sample/.specify/templates/SOURCE.txt
+만듦      /private/tmp/harness-james/examples/sdd-sample/.specify/memory/constitution.md
+(종료 코드 0)
