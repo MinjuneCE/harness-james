@@ -14,10 +14,25 @@ export const MAX_TOOLS = 40
 export const THINK_KEEP = 1600
 export const SAID_KEEP = 600
 export const NOTE_KEEP = 220
+/**
+ * A decider's answer reaches the run within this. No event says the permission
+ * dialog went up, so an asked call held longer, with a person to ask and no
+ * classifier at work, reads as waiting on the person.
+ */
+export const DIALOG_AFTER_MS = 1500
+/** How auto mode's refusal reads as a verdict. */
+export const AUTO_DENIED = '자동 모드가 거부'
+/** A window that shrank to under this share of the request before, by at least `COMPACT_MIN_TOKENS`, was compacted in between. */
+export const COMPACT_DROP = 0.5
+export const COMPACT_MIN_TOKENS = 20_000
+/** A `/compact` that came back sooner than a summary takes compacted nothing. */
+export const COMPACT_MIN_MS = 1000
 
 const LIVE_TOOL: ReadonlySet<TraceToolState> = new Set(['run', 'ask', 'wait'])
 const RESERVED = new Set(['tool', 'tool_use_id', 'agentId', 'requestMeta'])
-const REJECTED = /doesn['’]t want to proceed|was rejected|denied by|permission (?:was )?denied/i
+const REJECTED = /doesn['’]t want to proceed|was rejected|denied by|permission (?:to use [\w-]+ )?(?:was |has been )?denied/i
+/** The refusal as the model reads auto mode's: its reason follows. */
+const AUTO_REFUSED = /denied by the Claude Code auto mode classifier\.?\s*(?:Reason:\s*)?([\s\S]*)/i
 
 export const loopOf = (agentId: string | undefined): string => agentId ?? MAIN
 
@@ -362,29 +377,35 @@ export function markChecked(
   return patchTool(list, id, t => checkedTool(t, v))
 }
 
-/** The loop's latest live call of that tool not yet put to the person: the one a dialog went up for. */
-export function promptedOf(list: readonly TraceStep[], loop: string, toolName: string): TraceTool | undefined {
-  for (let i = list.length - 1; i >= 0; i -= 1) {
-    const step = list[i]
-    if (step === undefined || step.loop !== loop) continue
-    for (let j = step.tools.length - 1; j >= 0; j -= 1) {
-      const tool = step.tools[j]
-      if (tool === undefined || tool.name !== toolName || tool.isPrompted === true) continue
-      if (tool.state !== 'run' && tool.state !== 'ask' && tool.state !== 'queued') continue
-
-      return tool
-    }
-  }
-
-  return undefined
+/**
+ * Since when nothing but a person's answer holds an asked call: the classifier's
+ * answer when it was asked, else the permission verdict. Undefined while the
+ * classifier judges, once it refused, once the call runs, and where no person can be asked.
+ */
+export function heldSince(t: TraceTool): number | undefined {
+  if (t.isAsked !== true || t.approver !== 'person' || t.runAt !== undefined) return undefined
+  if (t.judgedAt !== undefined) return t.judgeMs === undefined || t.judge === 'deny' ? undefined : t.judgedAt + t.judgeMs
+  return t.checkedAt
 }
 
-/** The dialog went up for the loop's latest live call of that tool. */
-export function markPrompted(list: readonly TraceStep[], loop: string, toolName: string, now: number): TraceStep[] {
-  const tool = promptedOf(list, loop, toolName)
+/**
+ * The call as waiting on the person, when it is: held `DIALOG_AFTER_MS` or
+ * longer by `now`, or refused without running (`isRefused`: only the person
+ * refuses a call the classifier did not). Undefined when nothing changes.
+ */
+export function promptedTool(t: TraceTool, now: number, isRefused = false): TraceTool | undefined {
+  if (t.isPrompted === true) return undefined
+  const since = heldSince(t)
+  if (since === undefined) return undefined
+  if (!isRefused && now - since < DIALOG_AFTER_MS) return undefined
+  const next: TraceTool = { ...t, isPrompted: true, promptedAt: since }
+  if (t.state === 'ask' || t.state === 'queued' || t.state === 'run') next.state = 'wait'
 
-  return tool === undefined ? list.slice() : patchTool(list, tool.id, t => ({ ...t, state: 'wait', isPrompted: true, promptedAt: now }))
+  return next
 }
+
+/** True when the text is a refusal of the call (the person's no, a rule's, the classifier's) rather than the tool's own error. */
+export const isRefusal = (text: string | undefined): boolean => text !== undefined && REJECTED.test(text)
 
 export type ToolOutcome = { kind: 'ok' | 'fail' | 'deny'; text?: string }
 
@@ -398,11 +419,16 @@ export function finishedTool(t: TraceTool, outcome: ToolOutcome, now: number): T
     next.state = 'deny'
     next.note = oneLine(text, NOTE_KEEP)
   } else if (t.state === 'deny' || t.state === 'stop') {
-    // PermissionDenied or an interrupt said it first
+    // the classifier's refusal or an interrupt said it first
   } else if (/interrupt/i.test(text)) {
     next.state = 'stop'
     next.note = '중단됨'
-  } else if ((t.isPrompted === true || t.isAsked === true) && t.execMs === undefined && REJECTED.test(text)) {
+  } else if (t.runAt === undefined && t.execMs === undefined && AUTO_REFUSED.test(text)) {
+    // The classifier's refusal, read from the result where no `tool.judge` told of it.
+    next.state = 'deny'
+    next.verdict = AUTO_DENIED
+    next.note = excerpt(AUTO_REFUSED.exec(text)?.[1]) ?? '거부됨'
+  } else if ((t.isPrompted === true || t.isAsked === true) && t.runAt === undefined && t.execMs === undefined && REJECTED.test(text)) {
     next.state = 'deny'
     next.note = t.isPrompted === true ? '사용자가 거절함' : (excerpt(text) ?? '거부됨')
   } else {
@@ -443,21 +469,23 @@ export function closeLoop(list: readonly TraceStep[], loop: string, now: number,
 
 // ---- reads: what the pane draws ----
 
-/** How long a call waited on its approval: settled, from its run time; still waiting, from the clock. */
+/** How long a call waited on the person: from when the dialog had it until it ran or ended, the classifier's time left out. */
 export function waitMs(t: TraceTool, now: number): number {
-  if (t.execMs !== undefined && t.startedAt !== undefined && t.endedAt !== undefined) {
-    return Math.max(0, t.endedAt - t.startedAt - t.execMs)
-  }
-  if (t.state === 'wait') return Math.max(0, now - (t.promptedAt ?? t.startedAt ?? now))
-  if (t.state === 'ask') return Math.max(0, now - (t.startedAt ?? now))
+  if (t.isPrompted !== true) return 0
+  const from = t.promptedAt ?? t.checkedAt ?? t.startedAt
+  if (from === undefined) return 0
+  // A trace saved before the run's start was stamped: the run time taken off the end.
+  const until = t.runAt ?? (t.endedAt !== undefined && t.execMs !== undefined ? t.endedAt - t.execMs : (t.endedAt ?? now))
+  const judged = t.judgedAt !== undefined && t.judgedAt >= from ? (t.judgeMs ?? Math.max(0, now - t.judgedAt)) : 0
 
-  return 0
+  return Math.max(0, until - from - judged)
 }
 
+/** The tool's own run time: as `tool.run` timed it, or from when it began to run until now. */
 export function runMs(t: TraceTool, now: number): number {
   if (t.execMs !== undefined) return t.execMs
 
-  return Math.max(0, (t.endedAt ?? now) - (t.startedAt ?? t.queuedAt))
+  return Math.max(0, (t.endedAt ?? now) - (t.runAt ?? t.startedAt ?? t.queuedAt))
 }
 
 /** The turn a step list belongs to: the main loop's latest, else none. */

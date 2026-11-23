@@ -3,6 +3,15 @@
 // went, the harness it touched, and where it got stuck, with the harness piece
 // (a skill, a hook, a rule, a document) that could fix each place.
 //
+// What a call waited on and how long it ran come from the events around the
+// run itself (`tool.check`, `tool.judge`, `tool.run`), not from the classic
+// hook events: a plugin seated above can hand those past this
+// one, and the pane would go blind to them there. Two facts have no other
+// event and stay on theirs, with a plainer reading beside them for where they
+// are not heard: what the API said when it stopped a turn (`classic.StopFailure`;
+// else the turn's own end), and a compaction as it runs (`session.compact`;
+// else `/compact` itself, or the window found shrunk at the next request).
+//
 // The model never waits on the trace. A hook writes what it saw into the
 // module's memory with synchronous code and hands the event on; the only thing
 // a hook awaits is `next(e)`, the engine's own work. The pane is redrawn and
@@ -19,22 +28,25 @@ import { clearFileToggles, readFileToggles, toggleNetFile, toggleOpenFile } from
 import { renderFiles } from './files-view'
 import { homeOf } from './flow'
 import {
+  API_STOPPED,
   clearAll,
   clearDone,
   closeStep,
+  cutJudge,
   cutStep,
   drain,
   hydrate,
   isLive,
   mem,
   needsLookup,
-  noteAutoDenied,
   noteCheck,
   noteChunk,
   noteCompactEnd,
   noteCompactStart,
-  notePrompted,
-  noteRunTime,
+  noteJudgeEnd,
+  noteJudgeStart,
+  noteRunEnd,
+  noteRunStart,
   noteSpawn,
   noteToolEnd,
   noteToolStart,
@@ -157,11 +169,6 @@ export const register: Register = on => {
   })
 
   // /clear: the host empties the state, and the module's memory goes with it.
-  on('classic.SessionStart', ($, e, next) => {
-    if (e.source === 'clear') quiet(clearAll)
-    return next(e)
-  }).catch(($, e, next) => next(e))
-
   on('session.end', ($, e, next) => {
     if (e.reason === 'clear') quiet(clearAll)
     return next(e)
@@ -185,6 +192,18 @@ export const register: Register = on => {
 
     return {}
   })
+
+  // /compact, timed as its command: heard also where `session.compact` is not.
+  on('command.run', { command: 'compact' }, async ($, e, next) => {
+    quiet(() => noteCompactStart('manual', stamp(), true))
+    kick($)
+    try {
+      return await next(e)
+    } finally {
+      quiet(() => noteCompactEnd(stamp(), true))
+      kick($)
+    }
+  }).catch(($, e, next) => next(e))
 
   on('turn.start', ($, e, next) => {
     quiet(() => noteTurnStart(e, stamp()))
@@ -251,9 +270,37 @@ export const register: Register = on => {
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
     const toolId = e.tool_use_id
-    if (toolId !== undefined) quiet(() => noteCheck(toolId, verdict))
+    if (toolId !== undefined) quiet(() => noteCheck(toolId, verdict, stamp(), e.approver))
 
     return verdict
+  }).catch(($, e, next) => next(e))
+
+  // Auto mode asks its classifier: the wait is the classifier's, and a refusal is its own.
+  on('tool.judge', async ($, e, next) => {
+    quiet(() => noteJudgeStart(e.tool_use_id, stamp()))
+    kick($)
+    let isAnswered = false
+    try {
+      const judged = await next(e)
+      isAnswered = true
+      quiet(() => noteJudgeEnd(e.tool_use_id, judged, stamp()))
+      kick($)
+
+      return judged
+    } finally {
+      if (!isAnswered) quiet(() => cutJudge(e.tool_use_id, stamp()))
+    }
+  }).catch(($, e, next) => next(e))
+
+  // The call was allowed and runs: whoever held it has answered, and the time from here is the tool's own.
+  on('tool.run', async ($, e, next) => {
+    quiet(() => noteRunStart(e.tool_use_id, stamp()))
+    kick($)
+    try {
+      return await next(e)
+    } finally {
+      quiet(() => noteRunEnd(e.tool_use_id, stamp()))
+    }
   }).catch(($, e, next) => next(e))
 
   on('agent.spawn', async ($, e, next) => {
@@ -273,43 +320,11 @@ export const register: Register = on => {
     return answered
   })
 
-  // The dialog went up: the person is the one the call waits on now.
-  on('classic.PermissionRequest', ($, e, next) => {
-    quiet(() => notePrompted(e.agent_id, e.tool_name, stamp()))
-    kick($)
-
-    return next(e)
-  }).catch(($, e, next) => next(e))
-
-  // Auto mode's classifier refused the call.
-  on('classic.PermissionDenied', ($, e, next) => {
-    quiet(() => noteAutoDenied(e.tool_use_id, e.reason))
-    kick($)
-
-    return next(e)
-  }).catch(($, e, next) => next(e))
-
-  // The tool's own run time, the permission wait left out.
-  on('classic.PostToolUse', ($, e, next) => {
-    quiet(() => noteRunTime(e.tool_use_id, e.duration_ms))
-
-    return next(e)
-  }).catch(($, e, next) => next(e))
-
-  on('classic.PostToolUseFailure', ($, e, next) => {
-    quiet(() => {
-      const failure: { error?: string; isInterrupt?: boolean } = { error: e.error }
-      if (e.is_interrupt === true) failure.isInterrupt = true
-      noteRunTime(e.tool_use_id, e.duration_ms, failure)
-    })
-
-    return next(e)
-  }).catch(($, e, next) => next(e))
-
+  // What the API said when it stopped the turn; where this is not heard, the turn's end notes the stop alone.
   on('classic.StopFailure', ($, e, next) => {
     quiet(() => {
       const details = e.error_details === undefined ? '' : ` — ${e.error_details}`
-      noteTurnNote(`API 오류로 멈춤: ${oneLine(`${e.error}${details}`, 160)}`)
+      noteTurnNote(`${API_STOPPED}: ${oneLine(`${e.error}${details}`, 160)}`)
     })
     kick($)
 

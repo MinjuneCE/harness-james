@@ -33,15 +33,25 @@ export const HOME = '/Users/me'
 export const CWD = `${HOME}/repo`
 
 /** One scripted model response: its pieces, then its result. */
-export type Script = { chunks: TurnStepChunk[]; uses: { name: string; input: unknown }[]; answer: string; isEndless?: true }
+export type Script = { chunks: TurnStepChunk[]; uses: { name: string; input: unknown }[]; answer: string; isEndless?: true; usage?: typeof USAGE }
 
 export type Verdict = { decision: 'allow' | 'ask' | 'deny'; reason?: string; rule?: string; hook?: string }
 export type Beneath = {
   /** A tool's error text, or undefined for a call that answers. */
   fail?: (name: string, id: string) => string | undefined
-  /** Holds a tool's answer until the promise settles. */
+  /** Holds a tool's run until the promise settles. */
   hold?: (name: string) => Promise<void> | undefined
   check?: (name: string) => Verdict
+  /** Holds an asked call before its run until the promise settles: the dialog up, or whoever settles the ask taking their time. */
+  person?: (name: string) => Promise<void> | undefined
+  /** True for a call the person refuses at the dialog. */
+  refuse?: (name: string) => boolean
+  /** Holds a compaction (`$.session.compact`) until the promise settles. */
+  compact?: () => Promise<void> | undefined
+  /** Holds a slash command the plugin does not answer (`/compact`) until the promise settles. */
+  command?: (name: string) => Promise<void> | undefined
+  /** The classifier's answer to a `$.tool.judge` the test raises, held until it settles; an allow when absent. */
+  judge?: (name: string) => Promise<{ decision: 'allow' | 'ask' | 'deny'; reason?: string }> | undefined
   /** A tool's own result for a call that answers; `{ ok: true }` when absent. */
   answer?: (name: string, id: string) => unknown
   /** Told when the reader closed a response before it finished. */
@@ -50,7 +60,16 @@ export type Beneath = {
   cwd?: string
 }
 
-/** What the engine does beneath the plugin, scripted: the model, the tools, the dialogs. */
+/**
+ * What the engine does beneath the plugin, scripted: the model, the tools, the dialogs.
+ *
+ * `$.tool.call` raises the permission check, then (an ask answered at
+ * `classic.PermissionRequest`) the run, whose bottom is the `tool.call` hook
+ * here. It asks no classifier and names no approver: a test that plays auto
+ * mode raises `$.tool.judge` itself, and one that plays a session with a
+ * person to ask raises `$.tool.check` with `approver: 'person'`, both under
+ * the call's id, while `person` holds the call.
+ */
 export function engine(on: On, scripts: Script[], beneath: Beneath = {}) {
   let step = 0
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
@@ -72,7 +91,7 @@ export function engine(on: On, scripts: Script[], beneath: Beneath = {}) {
       answer: script.answer,
       toolUses: script.uses,
       stopReason: script.uses.length > 0 ? 'tool_use' : 'end_turn',
-      usage: USAGE,
+      usage: script.usage ?? USAGE,
     }
 
     return result
@@ -87,10 +106,33 @@ export function engine(on: On, scripts: Script[], beneath: Beneath = {}) {
   on('tool.check', ($, e) => beneath.check?.(e.tool) ?? { decision: 'allow', rule: 'Bash(npm test:*)' })
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('session.cwd', () => ({ value: beneath.cwd ?? CWD }))
-  on('classic.PostToolUse', () => ({}))
-  on('classic.PostToolUseFailure', () => ({}))
-  on('classic.PermissionRequest', () => ({}))
-  on('classic.PermissionDenied', () => ({}))
+  on('tool.judge', async ($, e) => (await beneath.judge?.(e.tool)) ?? { decision: 'allow' })
+  on('classic.PermissionRequest', async ($, e) => {
+    await beneath.person?.(e.tool_name)
+    return beneath.refuse?.(e.tool_name) === true ? { decision: { behavior: 'deny' as const } } : { decision: { behavior: 'allow' as const } }
+  })
+  on('classic.StopFailure', () => ({}))
+  on('session.compact', async ($, e) => {
+    await beneath.compact?.()
+    return { messages: e.messages }
+  })
+  on('command.run', async ($, e) => {
+    await beneath.command?.(e.command)
+    return {}
+  })
+}
+
+/** A transcript for a compaction to run over: the event takes one message at least. */
+export const TRANSCRIPT = [{ role: 'user' as const, text: '지금까지의 대화', toolUses: [], toolResults: [] }]
+
+/** A promise a test settles by hand: what holds a call, and the hand that lets it go. */
+export function gate(): { wait: Promise<void>; open: () => void } {
+  let open: () => void = () => {}
+  const wait = new Promise<void>(resolve => {
+    open = resolve
+  })
+
+  return { wait, open }
 }
 
 /** Reads a step's stream to its end, as the query loop does: the response is the iterator's last value. */

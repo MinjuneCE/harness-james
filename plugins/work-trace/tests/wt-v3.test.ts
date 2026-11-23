@@ -7,7 +7,7 @@ import type { TraceStep, TraceTool } from '../types'
 import { BLOCK, actOf, bashAct, buildFlow, harnessLine, harnessOf, refsOf, splitCommand, timeLine, timeOf } from '../hooks/flow'
 import type { FlowLine, Where } from '../hooks/flow'
 import { newStep } from '../hooks/trace'
-import { CWD, HOME, PANE, SURFACES, USAGE, engine, runStep, textOf, toolChunk } from './kit'
+import { CWD, HOME, PANE, SURFACES, USAGE, engine, gate, runStep, textOf, toolChunk } from './kit'
 import type { Script } from './kit'
 
 const W: Where = { cwd: CWD, home: HOME }
@@ -188,8 +188,12 @@ test('each stuck signal shows on its line past its threshold, with the harness p
   expect(show(flowOf([step(0, [byHook()])]))).toContain('! 사람 승인 1분 20초 | git push → 의도된 확인 (훅·규칙)')
   expect(show(flowOf([step(0, [byRule()])]))).toContain('! 사람 승인 1분 20초 | git push → 의도된 확인 (훅·규칙)')
   expect(show(flowOf([step(0, [byMode()])])), 'a classifier or rule-less ask still points at a rule').toContain('! 사람 승인 1분 20초 | git push → 권한 규칙 후보')
-  expect(show(flowOf([step(0, [asked(6_000, false)])]))).toContain('! 자동 판정 6초 | git push → 권한 규칙 후보')
-  expect(show(flowOf([step(0, [asked(4_000, false)])])).some(l => l.includes('자동 판정')), 'under five seconds').toBe(false)
+  // The classifier's own time, as `tool.judge` timed it.
+  const judged = (ms: number): TraceTool =>
+    tool('Bash', { command: 'git push' }, { isAsked: true, startedAt: 0, judgedAt: 0, judgeMs: ms, judge: 'allow', runAt: ms, endedAt: ms + 300, execMs: 300 })
+  expect(show(flowOf([step(0, [judged(6_000)])]))).toContain('! 자동 판정 6초 | git push → 권한 규칙 후보')
+  expect(show(flowOf([step(0, [judged(4_000)])])).some(l => l.includes('자동 판정')), 'under five seconds').toBe(false)
+  expect(show(flowOf([step(0, [asked(6_000, false)])])).some(l => l.includes('자동 판정')), 'an ask no classifier judged claims no judging').toBe(false)
 
   const slow = tool('Bash', { command: 'npm run build' }, { startedAt: 0, endedAt: 70_000, execMs: 70_000 })
   expect(show(flowOf([step(0, [slow])]))).toContain('! 오래 걸림 1분 10초 | 빌드 → 명령·스크립트 개선 후보')
@@ -205,6 +209,8 @@ test('each stuck signal shows on its line past its threshold, with the harness p
   expect(show(flowOf([step(0, [tool('Edit', { file_path: `${CWD}/s.ts` }, { state: 'deny', note: '자동 모드가 거부' })])]))).toEqual(['! 고침 | s.ts'])
   const compacted = buildFlow([step(0, [])], { now: 100_000, w: W, isExpanded: false, isLive: false, compactions: [{ startedAt: 0, endedAt: 75_000, trigger: 'auto' }] })
   expect(show(compacted)).toContain('! 컨텍스트 압축 1분 15초 (자동)')
+  const inferred = buildFlow([step(0, [])], { now: 100_000, w: W, isExpanded: false, isLive: false, compactions: [{ startedAt: 0, endedAt: 30_000, trigger: 'auto', isInferred: true }] })
+  expect(show(inferred), 'one read from the window shrinking says so').toContain('! 컨텍스트 압축 30초 (자동·추정)')
 })
 
 test('where the time went and the harness touched, in one line each', () => {
@@ -231,7 +237,7 @@ test('where the time went and the harness touched, in one line each', () => {
 test('/clear empties the trace: the module memory goes with the state the host clears', async ($, on) => {
   mock.clock(on, { now: 30_000_000 })
   engine(on, [{ chunks: [toolChunk(0, 'r', 'Read')], uses: [], answer: '' }])
-  on('classic.SessionStart', () => ({}))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   await $.turn.start({ text: '읽어줘', turnId: 'c1' })
   await runStep($, 'c1', 0)
   await $.tool.call({ tool: 'Read', file_path: `${CWD}/a.ts`, tool_use_id: 'r' })
@@ -239,78 +245,99 @@ test('/clear empties the trace: the module memory goes with the state the host c
   expect(await ui.find({ type: 'Text', text: /읽음\s+a\.ts/ }), await textOf(ui)).toBeDefined()
   await ui.unmount()
 
-  await $.classic.SessionStart({ source: 'clear' })
+  await $.session.end({ reason: 'clear', sessionId: 's-1', resume: { id: 's-1' } })
   ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /읽음\s+a\.ts|“읽어줘”/ }), await textOf(ui)).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /아직 기록이 없어요/ })).toBeDefined()
   await ui.unmount()
 })
 
-test('an auto-judged call reads neutral while judge and run are one span, and splits by its run time once it ends', () => {
+test("an auto-judged call says the classifier's time apart from the run, while it goes and once it ends", () => {
   const judged = (extra: Partial<TraceTool>): TraceTool =>
-    tool('Bash', { command: `head -5 ${CWD}/wt-v3.md && sleep 12` }, { isAsked: true, check: { decision: 'ask' }, startedAt: 0, ...extra })
+    tool('Bash', { command: `head -5 ${CWD}/wt-v3.md && sleep 12` }, { isAsked: true, check: { decision: 'ask' }, startedAt: 0, judgedAt: 0, ...extra })
   const at12 = (steps: TraceStep[]): { flow: string[]; notes: string[]; time: string } => {
     const flow = flowOf(steps, 12_000)
     return { flow: show(flow), notes: flow.map(l => l.note ?? ''), time: timeLine(timeOf(steps, 12_000)) }
   }
 
-  // Still running: the API has not said whether the decider or the command holds it.
-  const running = at12([step(0, [judged({ state: 'ask', endedAt: undefined })])])
-  expect(running.flow).toEqual(['● 읽음 | wt-v3.md'])
-  expect(running.notes).toEqual(['판정·실행 중 12초'])
-  expect(running.time).toBe('판정·실행 중 12초 ━━━━━━━━━━')
+  // Still with the classifier: the wait is its own, said and flagged as it goes.
+  const judging = at12([step(0, [judged({ state: 'ask', endedAt: undefined })])])
+  expect(judging.flow).toEqual(['● 읽음 | wt-v3.md', '! 자동 판정 중 12초 | wt-v3.md → 권한 규칙 후보'])
+  expect(judging.notes).toEqual(['자동 판정 중 12초', ''])
+  expect(judging.time).toBe('자동 판정 12초 ━━━━━━━━━━')
 
-  // Ended with its run time: the rest was the decider's, flagged only past five seconds.
-  const quick = at12([step(0, [judged({ state: 'ok', endedAt: 12_000, execMs: 11_800 })])])
+  // Allowed in a moment and running since: the time is the tool's, though the call has not ended.
+  const running = at12([step(0, [judged({ state: 'run', endedAt: undefined, judgeMs: 200, judge: 'allow', runAt: 200 })])])
+  expect(running.flow).toEqual(['● 읽음 | wt-v3.md'])
+  expect(running.notes).toEqual([''])
+  expect(running.time).toBe('도구 11초 ━━━━━━━━━━')
+
+  // Ended: the classifier's time flagged only past five seconds.
+  const quick = at12([step(0, [judged({ state: 'ok', judgeMs: 200, judge: 'allow', runAt: 200, endedAt: 12_000, execMs: 11_800 })])])
   expect(quick.flow, 'a fraction of a second judging is no signal').toEqual(['✓ 읽음 | wt-v3.md'])
   expect(quick.notes).toEqual([''])
   expect(quick.time).toBe('도구 11초 ━━━━━━━━━━')
-  const slow = at12([step(0, [judged({ state: 'ok', endedAt: 12_000, execMs: 6_000 })])])
+  const slow = at12([step(0, [judged({ state: 'ok', judgeMs: 6_000, judge: 'allow', runAt: 6_000, endedAt: 12_000, execMs: 6_000 })])])
   expect(slow.flow).toEqual(['✓ 읽음 | wt-v3.md', '! 자동 판정 6초 | wt-v3.md → 권한 규칙 후보'])
   expect(slow.time).toBe('도구 6초 ━━━━━───── · 자동 판정 6초')
 
-  // Ended with no run time: the span stays neutral, unflagged.
-  const unknown = at12([step(0, [judged({ state: 'ok', endedAt: 12_000 })])])
-  expect(unknown.flow).toEqual(['✓ 읽음 | wt-v3.md'])
-  expect(unknown.notes).toEqual(['판정·실행 12초'])
-  expect(unknown.time).toBe('판정·실행 12초 ━━━━━━━━━━')
+  // Asked and settled with no classifier (a mode that allows it outright): no judging is claimed.
+  const unjudged = at12([step(0, [judged({ state: 'ok', judgedAt: undefined, runAt: 300, endedAt: 12_000, execMs: 11_700 })])])
+  expect(unjudged.flow).toEqual(['✓ 읽음 | wt-v3.md'])
+  expect(unjudged.time).toBe('도구 11초 ━━━━━━━━━━')
 })
 
-test('in auto mode a long command under judgement shows no 자동 판정 while it runs, and its run time once it ends', async ($, on) => {
+test('in auto mode a command reads as judged while the classifier has it, then as running, and the two times come apart', async ($, on) => {
   const clock = mock.clock(on, { now: 60_000_000 })
-  let release: () => void = () => {}
-  const released = new Promise<void>(resolve => {
-    release = resolve
-  })
+  const asked = gate()
+  const judging = gate()
+  const running = gate()
   const cmd = `head -5 ${CWD}/wt-v3.md && grep -n x ${CWD}/wt-v3.md && sleep 12`
   engine(on, [{ chunks: [toolChunk(0, 'tu-s', 'Bash')], uses: [], answer: '' }], {
-    hold: name => (name === 'Bash' ? released : undefined),
+    person: () => asked.wait,
+    judge: () => judging.wait.then(() => ({ decision: 'allow' as const })),
+    hold: name => (name === 'Bash' ? running.wait : undefined),
     check: () => ({ decision: 'ask' }),
   })
   await $.turn.start({ text: '읽어 봐', turnId: 'a1' })
   await runStep($, 'a1', 0)
+  // No classic hook event is raised from here on: what the pane says comes from tool.check, tool.judge and tool.run alone.
   const call = $.tool.call({ tool: 'Bash', command: cmd, tool_use_id: 'tu-s' })
   await clock.settle()
-  await $.tool.check({ tool: 'Bash', input: { command: cmd }, tool_use_id: 'tu-s' })
-  await clock.advance(12_000)
+  const judged = $.tool.judge({ tool: 'Bash', input: { command: cmd }, tool_use_id: 'tu-s' })
+  await clock.settle()
+  // Seven seconds on the host's clock: six and a fraction since the question was put.
+  await clock.advance(7_000)
 
   let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   let all = await textOf(ui)
-  expect(await ui.find({ type: 'Text', text: /자동 판정/ }), all).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /권한 규칙 후보/ }), 'nothing flagged').toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /승인 판정 또는 읽는 중/ }), 'the header stays neutral').toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /● 읽음·검색\s+wt-v3\.md\s+· 판정·실행 중 1\d초/ }), 'the line says the time, neutrally').toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /판정·실행 중 1\d초 ━/ }), 'and so does where the time went').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /자동 판정 중 · 6초/ }), all).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /● 읽음·검색\s+wt-v3\.md\s+· 자동 판정 중 6초/ }), 'the line says whose wait it is').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /! 자동 판정 중 6초\s+wt-v3\.md\s+→ 권한 규칙 후보/ }), 'flagged while it still judges').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /자동 판정 6초 ━/ }), 'and so does where the time went').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /사람 승인/ }), 'nobody was asked').toBeUndefined()
   await ui.unmount()
 
-  await $.classic.PostToolUse({ tool_name: 'Bash', tool_input: {}, tool_response: {}, tool_use_id: 'tu-s', duration_ms: 11_900 })
-  release()
+  judging.open()
+  await judged
+  asked.open()
+  await clock.settle()
+  await clock.advance(12_000)
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  all = await textOf(ui)
+  expect(await ui.find({ type: 'Text', text: /읽는 중 · 1\d초/ }), all).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /자동 판정 중/ }), 'the classifier is done').toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /도구 1\d초 ━/ }), 'the run counts as the tool from its start').toBeDefined()
+  await ui.unmount()
+
+  running.open()
   await call
   ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   all = await textOf(ui)
-  expect(await ui.find({ type: 'Text', text: /자동 판정/ }), all).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /판정·실행/ }), 'split once the run time came').toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /도구 11초/ }), 'the run, as the tool timed it').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /도구 1\d초/ }), all).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /자동 판정 6초/ }), "the classifier's time, apart").toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /! 자동 판정 6초\s+wt-v3\.md\s+→ 권한 규칙 후보/ }), 'still flagged once ended').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /사람 승인/ }), 'nobody was asked').toBeUndefined()
   await ui.unmount()
 })
 

@@ -16,10 +16,26 @@ export type TraceTool = {
   endedAt?: number
   /** `tool.check` answered `ask`: the mode's decider (auto-mode classifier or the dialog) settled it. */
   isAsked?: boolean
-  /** The permission dialog was put to the person (`PermissionRequest`). */
+  /** When `tool.check` answered. */
+  checkedAt?: number
+  /** Who answers the call's asks, as `tool.check` carried it: `person` or `host`; absent where nobody can be asked. */
+  approver?: string
+  /** When auto mode put the call to its classifier (`tool.judge`). */
+  judgedAt?: number
+  /** How long the classifier took; absent while it judges. */
+  judgeMs?: number
+  /** The classifier's answer: `allow`, `deny`, or `ask` when it gave none. */
+  judge?: string
+  /**
+   * The call waited on the person: held past the classifier with a person to ask
+   * (no event says the dialog went up, so a hold longer than a decider takes reads as one).
+   */
   isPrompted?: boolean
+  /** Since when it waited on the person. */
   promptedAt?: number
-  /** The tool's own run time, the permission wait left out (`PostToolUse` `duration_ms`). */
+  /** When the allowed call began to run (`tool.run`). */
+  runAt?: number
+  /** The tool's own run time, the permission wait left out (`tool.run`, start to end). */
   execMs?: number
   /** How the call was let through or refused: the rule, hook or reason behind the verdict. */
   verdict?: string
@@ -119,6 +135,16 @@ export type TraceTurnOrigin =
     }
   | { kind: 'notice'; text: string }
 
+/** One compaction of the main conversation. */
+export type TraceCompaction = {
+  startedAt: number
+  endedAt?: number
+  /** `auto` or `manual`. */
+  trigger: string
+  /** No event told of it: read from the window shrinking between two requests, its time the gap between them. */
+  isInferred?: true
+}
+
 /** One turn of the main conversation. */
 export type TraceTurn = {
   turnId: string
@@ -131,7 +157,7 @@ export type TraceTurn = {
   /** What happened to the turn as a whole: an API failure, a compaction. */
   notes: string[]
   /** The compactions that held the turn. */
-  compactions?: { startedAt: number; endedAt?: number; trigger: string }[]
+  compactions?: TraceCompaction[]
 }
 
 /** What the pane keeps across a reload: the module's memory as it last saved it. */

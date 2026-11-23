@@ -4,11 +4,15 @@
 // plan's markdown, a file's diff, an agent looked up) waits raw in a queue and
 // is worked off the model's path: by the pane's timer or when the pane draws.
 import type { TraceAgent, TraceFile, TracePlan, TraceSnapshot, TraceStep, TraceTool, TraceTurn } from '../types'
-import { onFirstAnchor } from './clock'
+import { onFirstAnchor, stamp } from './clock'
 import { applyFileEdits, resetChains } from './files-hooks'
 import type { PendingEdit } from './files-hooks'
 import { applyCall, isPlanLive, isPlanTool, noticeOf, settleWorkflow } from './plan'
 import {
+  AUTO_DENIED,
+  COMPACT_DROP,
+  COMPACT_MIN_MS,
+  COMPACT_MIN_TOKENS,
   MAIN,
   MAX_AGENTS,
   MAX_TOOLS,
@@ -18,14 +22,14 @@ import {
   THINK_KEEP,
   capSteps,
   checkedTool,
-  excerpt,
   finishedTool,
+  isRefusal,
   keepTail,
   loopOf,
   newStep,
   oneLine,
   originOf,
-  promptedOf,
+  promptedTool,
 } from './trace'
 import type { ToolOutcome } from './trace'
 
@@ -58,6 +62,10 @@ export const mem = {
   texts: new Map<string, string>(),
   /** Calls by id, so a hook finds its call without a search. */
   toolIndex: new Map<string, TraceTool>(),
+  /** Asked calls not yet run or ended, a person the one to ask: watched for the hold that means the dialog is up. */
+  held: new Set<string>(),
+  /** A compaction under way was opened by `/compact` itself, no `session.compact` heard yet. */
+  isCompactByCommand: false,
   /** Bumped by every write; the timer saves and redraws when it moved. */
   rev: 0,
 }
@@ -185,6 +193,7 @@ export function closeStep(
     const u = r.usage
     s.contextTokens = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens
     s.outputTokens = u.output_tokens
+    if (s.loop === MAIN) inferCompaction(s)
   }
   s.tools.forEach((t, i) => {
     const use = r.toolUses[i]
@@ -193,6 +202,34 @@ export function closeStep(
     }
   })
   touch()
+}
+
+/**
+ * A compaction no event told of. Where a plugin above hands `session.compact`
+ * past this one, the only trace an automatic compaction
+ * leaves is the window: far smaller at this request than at the one before.
+ * Its time is the gap between the two, inside this turn; one already timed
+ * (`session.compact` heard, or `/compact`) in that gap is not counted again.
+ */
+function inferCompaction(s: TraceStep): void {
+  const now = s.contextTokens
+  if (now === undefined) return
+  let prev: TraceStep | undefined
+  for (let i = mem.steps.length - 1; i >= 0; i -= 1) {
+    const x = mem.steps[i]
+    if (x === undefined || x === s || x.loop !== MAIN || x.contextTokens === undefined || x.startedAt > s.startedAt) continue
+    prev = x
+    break
+  }
+  const before = prev?.contextTokens
+  if (prev === undefined || before === undefined) return
+  if (now > before * COMPACT_DROP || before - now < COMPACT_MIN_TOKENS) return
+  if (mem.turns.some(t => (t.compactions ?? []).some(c => c.startedAt >= prev.startedAt && c.startedAt <= s.startedAt))) return
+  const turn = mem.turns.find(t => t.turnId === s.turnId) ?? mem.turns[mem.turns.length - 1]
+  if (turn === undefined) return
+  const idleFrom = Math.max(prev.endedAt ?? prev.startedAt, ...prev.tools.map(t => t.endedAt ?? 0))
+  const startedAt = Math.min(s.startedAt, Math.max(idleFrom, turn.startedAt))
+  turn.compactions = [...(turn.compactions ?? []), { startedAt, endedAt: s.startedAt, trigger: 'auto', isInferred: true as const }].slice(-4)
 }
 
 /** The request was cut off (an interrupt, an error): it reads as failed rather than running. */
@@ -261,7 +298,13 @@ export function noteToolEnd(e: { tool: unknown; tool_use_id: string; agentId?: s
       : ran.isError === true
         ? { kind: 'fail', text: ran.text ?? (typeof ran.result === 'string' ? ran.result : undefined) }
         : { kind: 'ok' }
-  if (tool !== undefined) Object.assign(tool, finishedTool(tool, outcome, at))
+  if (tool !== undefined) {
+    // Refused without running, the classifier not the one who refused: the person did, at the dialog.
+    const prompted = promptedTool(tool, at, outcome.kind !== 'ok' && isRefusal(outcome.text))
+    if (prompted !== undefined) Object.assign(tool, prompted)
+    Object.assign(tool, finishedTool(tool, outcome, at))
+    mem.held.delete(id)
+  }
   const result = ran.result
   const r = result !== null && typeof result === 'object' ? (result as Record<string, unknown>) : undefined
   if (tool !== undefined) {
@@ -282,45 +325,96 @@ export function noteToolEnd(e: { tool: unknown; tool_use_id: string; agentId?: s
   touch()
 }
 
-export function noteCheck(toolUseId: string, v: { decision: string; reason?: string; rule?: string; hook?: string }): void {
+export function noteCheck(
+  toolUseId: string,
+  v: { decision: string; reason?: string; rule?: string; hook?: string },
+  at: number,
+  approver?: string,
+): void {
   const tool = mem.toolIndex.get(toolUseId)
   if (tool === undefined) return
   Object.assign(tool, checkedTool(tool, v))
+  tool.checkedAt = at
+  if (approver !== undefined) tool.approver = approver
+  if (v.decision === 'ask' && approver === 'person' && tool.endedAt === undefined) mem.held.add(toolUseId)
   touch()
 }
 
-/** The dialog went up: the person is the one the call waits on now. */
-export function notePrompted(agentId: string | undefined, toolName: string, at: number): void {
-  const tool = promptedOf(mem.steps, loopOf(agentId), toolName)
-  if (tool === undefined) return
-  tool.state = 'wait'
-  tool.isPrompted = true
-  tool.promptedAt = at
-  touch()
-}
-
-/** Auto mode's classifier refused the call. */
-export function noteAutoDenied(toolUseId: string, reason: string): void {
+/** Auto mode put the call to its classifier. */
+export function noteJudgeStart(toolUseId: string, at: number): void {
   const tool = mem.toolIndex.get(toolUseId)
   if (tool === undefined) return
-  tool.state = 'deny'
-  tool.note = oneLine(reason, NOTE_KEEP)
-  tool.verdict = '자동 모드가 거부'
+  tool.judgedAt = at
+  delete tool.judgeMs
+  delete tool.judge
+  // Whoever held it before, the classifier holds it now.
+  if (tool.state === 'wait') tool.state = 'ask'
   touch()
 }
 
-/** The tool's own run time, the permission wait left out. */
-export function noteRunTime(toolUseId: string, ms: number | undefined, failure?: { error?: string; isInterrupt?: boolean }): void {
+/** The classifier answered: its time, and its refusal when it refused. */
+export function noteJudgeEnd(toolUseId: string, v: { decision: string; reason?: string }, at: number): void {
   const tool = mem.toolIndex.get(toolUseId)
-  if (tool === undefined) return
-  if (ms !== undefined) tool.execMs = ms
-  if (failure !== undefined) {
-    const note = excerpt(failure.error)
-    if (note !== undefined) tool.note = note
-    if (failure.isInterrupt === true) tool.state = 'stop'
+  if (tool === undefined || tool.judgedAt === undefined) return
+  tool.judgeMs = Math.max(0, at - tool.judgedAt)
+  tool.judge = v.decision
+  if (v.decision === 'deny') {
+    tool.state = 'deny'
+    tool.verdict = AUTO_DENIED
+    if (v.reason !== undefined) tool.note = oneLine(v.reason, NOTE_KEEP)
+    mem.held.delete(toolUseId)
   }
   touch()
 }
+
+/** The classifier's question was cut off (an interrupt): its time ends here, with no answer. */
+export function cutJudge(toolUseId: string, at: number): void {
+  const tool = mem.toolIndex.get(toolUseId)
+  if (tool === undefined || tool.judgedAt === undefined || tool.judgeMs !== undefined) return
+  tool.judgeMs = Math.max(0, at - tool.judgedAt)
+  touch()
+}
+
+/** The call was allowed and begins to run: whoever held it has answered. */
+export function noteRunStart(toolUseId: string, at: number): void {
+  const tool = mem.toolIndex.get(toolUseId)
+  if (tool === undefined) return
+  const prompted = promptedTool(tool, at)
+  if (prompted !== undefined) Object.assign(tool, prompted)
+  tool.runAt = at
+  if (tool.state === 'queued' || tool.state === 'ask' || tool.state === 'wait') tool.state = 'run'
+  mem.held.delete(toolUseId)
+  touch()
+}
+
+/** The run ended: the tool's own time, the permission wait left out. */
+export function noteRunEnd(toolUseId: string, at: number): void {
+  const tool = mem.toolIndex.get(toolUseId)
+  if (tool === undefined || tool.runAt === undefined) return
+  tool.execMs = Math.max(0, at - tool.runAt)
+  touch()
+}
+
+/** Held calls looked at off the model's path: one held long enough reads as waiting on the person. True when one changed. */
+function settleHolds(at: number): boolean {
+  let changed = false
+  for (const id of mem.held) {
+    const tool = mem.toolIndex.get(id)
+    if (tool === undefined || tool.endedAt !== undefined || tool.runAt !== undefined) {
+      mem.held.delete(id)
+      continue
+    }
+    const prompted = promptedTool(tool, at)
+    if (prompted === undefined) continue
+    Object.assign(tool, prompted)
+    changed = true
+  }
+
+  return changed
+}
+
+/** How a turn the API stopped is noted; what the API said follows when an event told it. */
+export const API_STOPPED = 'API 오류로 멈춤'
 
 export function noteTurnNote(note: string): void {
   const last = mem.turns[mem.turns.length - 1]
@@ -329,17 +423,40 @@ export function noteTurnNote(note: string): void {
   touch()
 }
 
-export function noteCompactStart(trigger: string, at: number): void {
+/**
+ * A compaction begins. `/compact` is heard as its command and, where no plugin
+ * above hands the event past this one, as `session.compact` inside it: the
+ * first to say so opens it, and the other finds it open.
+ */
+export function noteCompactStart(trigger: string, at: number, isByCommand = false): void {
+  if (mem.compactSince !== null) {
+    // `session.compact` inside the command: the compaction is real, and its end is the event's.
+    if (!isByCommand) mem.isCompactByCommand = false
+    return
+  }
   mem.compactSince = at
+  mem.isCompactByCommand = isByCommand
   const last = mem.turns[mem.turns.length - 1]
   if (last !== undefined) last.compactions = [...(last.compactions ?? []), { startedAt: at, trigger }].slice(-4)
   touch()
 }
 
-export function noteCompactEnd(at: number): void {
+/**
+ * A compaction ended. One the command alone told of that came back sooner than
+ * a summary takes compacted nothing (too little to compact, a hook's veto) and is let go.
+ */
+export function noteCompactEnd(at: number, isByCommand = false): void {
+  const since = mem.compactSince
+  if (since === null) return
+  if (isByCommand && !mem.isCompactByCommand) return
   mem.compactSince = null
-  const open = mem.turns[mem.turns.length - 1]?.compactions?.find(c => c.endedAt === undefined)
-  if (open !== undefined) open.endedAt = at
+  mem.isCompactByCommand = false
+  const last = mem.turns[mem.turns.length - 1]
+  const open = last?.compactions?.find(c => c.endedAt === undefined)
+  if (last !== undefined && open !== undefined) {
+    if (isByCommand && at - since < COMPACT_MIN_MS) last.compactions = (last.compactions ?? []).filter(c => c !== open)
+    else open.endedAt = at
+  }
   touch()
 }
 
@@ -379,6 +496,8 @@ export function noteTurnEnd(e: { turnId: string; agentId?: string; reason: strin
     if (turn !== undefined) {
       turn.endedAt = at
       turn.outcome = e.reason
+      // Where no `classic.StopFailure` told what the API said, the turn's own end still says it stopped on an error.
+      if (e.reason === 'error' && !turn.notes.some(n => n.startsWith(API_STOPPED))) turn.notes = [...turn.notes, API_STOPPED].slice(-8)
     }
   } else {
     mem.running.delete(agentId)
@@ -433,6 +552,7 @@ export function drain(): boolean {
     mem.editsQueue = []
     changed = true
   }
+  if (mem.held.size > 0 && settleHolds(stamp())) changed = true
   trim()
   if (changed) touch()
 
@@ -550,13 +670,21 @@ export function clearAll(): void {
   mem.editsQueue = []
   mem.texts.clear()
   mem.toolIndex.clear()
+  mem.held.clear()
+  mem.isCompactByCommand = false
   resetChains()
   touch()
 }
 
 function reindex(): void {
   mem.toolIndex.clear()
-  for (const s of mem.steps) for (const t of s.tools) mem.toolIndex.set(t.id, t)
+  mem.held.clear()
+  for (const s of mem.steps) {
+    for (const t of s.tools) {
+      mem.toolIndex.set(t.id, t)
+      if (t.state === 'ask' && t.approver === 'person' && t.endedAt === undefined && t.runAt === undefined) mem.held.add(t.id)
+    }
+  }
 }
 
 // ---- the saved copy ----
@@ -618,7 +746,7 @@ export function hydrate(snap: TraceSnapshot | null): boolean {
 
 // ---- the stamps taken before the host's time was first read ----
 
-const TIME_KEYS = new Set(['startedAt', 'endedAt', 'phaseAt', 'firstAt', 'queuedAt', 'promptedAt', 'updatedAt', 'at', 'lastAt'])
+const TIME_KEYS = new Set(['startedAt', 'endedAt', 'phaseAt', 'firstAt', 'queuedAt', 'promptedAt', 'checkedAt', 'judgedAt', 'runAt', 'updatedAt', 'at', 'lastAt'])
 
 function shift(o: unknown, delta: number): void {
   if (Array.isArray(o)) {

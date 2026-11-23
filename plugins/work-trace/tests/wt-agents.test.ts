@@ -44,6 +44,10 @@ function engine(
     fail?: (name: string) => string | undefined
     hold?: (name: string) => Promise<void> | undefined
     check?: (name: string) => Verdict
+    /** Holds an asked call before its run: whoever settles the ask taking their time. */
+    settle?: (name: string) => Promise<void> | undefined
+    /** The classifier's answer to a `$.tool.judge` the test raises, held until it settles. */
+    judge?: (name: string) => Promise<Verdict> | undefined
   } = {},
 ) {
   const at = new Map<string, number>()
@@ -73,10 +77,11 @@ function engine(
   })
   on('tool.check', ($, e) => beneath.check?.(e.tool) ?? { decision: 'allow' })
   on('turn.complete', ($, e) => ({ text: e.answer }))
-  on('classic.PostToolUse', () => ({}))
-  on('classic.PostToolUseFailure', () => ({}))
-  on('classic.PermissionRequest', () => ({}))
-  on('classic.PermissionDenied', () => ({}))
+  on('tool.judge', async ($, e) => (await beneath.judge?.(e.tool)) ?? { decision: 'allow' })
+  on('classic.PermissionRequest', async ($, e) => {
+    await beneath.settle?.(e.tool_name)
+    return { decision: { behavior: 'allow' as const } }
+  })
 }
 
 const call = (id: string, name: string, input: unknown): Script => ({
@@ -219,25 +224,46 @@ test("an ended agent's report links to its hand-back turn, and a workflow agent 
   await inline.unmount()
 })
 
-test('a call the decider holds reads as judged or running, not as running alone', async ($, on) => {
-  mock.clock(on, { now: 12_000_000 })
-  const held = gate()
+test('a call the decider holds reads as held for its verdict, as judged while the classifier has it, and as running only once it runs', async ($, on) => {
+  const clock = mock.clock(on, { now: 12_000_000 })
+  const asked = gate()
+  const judging = gate()
+  const running = gate()
   engine(on, { main: [call('tu-b', 'Bash', { command: 'rm -rf build' })] }, {
-    hold: name => (name === 'Bash' ? held.wait : undefined),
+    settle: () => asked.wait,
+    judge: () => judging.wait.then(() => ({ decision: 'allow' as const })),
+    hold: name => (name === 'Bash' ? running.wait : undefined),
     check: () => ({ decision: 'ask' }),
   })
   await $.turn.start({ text: '빌드 지워줘', turnId: 'm1' })
   await step($, 'm1', 0)
   const bash = $.tool.call({ tool: 'Bash', command: 'rm -rf build', tool_use_id: 'tu-b' })
-  await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' }, tool_use_id: 'tu-b' })
+  await clock.settle()
 
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /승인 판정 또는 파일 작업 중/ }), 'the header').toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /● 파일 작업\s+build/ }), 'the call, running, in the flow').toBeDefined()
+  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /승인 판정 중/ }), 'the header: held for its verdict').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /파일 작업 중/ }), 'not said to run').toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /● 파일 작업\s+build/ }), 'the call, live, in the flow').toBeDefined()
   expect(await ui.find({ type: 'Text', text: /확인 필요/ }), "the call's verdict waits for 자세히").toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /서브에이전트/ }), 'no section without agents').toBeUndefined()
   await ui.unmount()
-  held.open()
+
+  // Auto mode asks its classifier.
+  const judged = $.tool.judge({ tool: 'Bash', input: { command: 'rm -rf build' }, tool_use_id: 'tu-b' })
+  await clock.settle()
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /자동 판정 중/ }), 'the header: the classifier has it').toBeDefined()
+  await ui.unmount()
+
+  judging.open()
+  await judged
+  asked.open()
+  await clock.settle()
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /파일 작업 중/ }), 'the header: it runs now').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /판정 중/ }), 'and is no longer held').toBeUndefined()
+  await ui.unmount()
+  running.open()
   await bash
 })
 

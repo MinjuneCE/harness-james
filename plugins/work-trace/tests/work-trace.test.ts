@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { finishTool, fmtDur, markChecked, markPrompted, originOf, startTool, summarize, tailCells } from '../hooks/trace'
-import { CWD, PANE, SURFACES, USAGE, drain, engine, runStep, textOf, toolChunk } from './kit'
+import { finishTool, fmtDur, markChecked, originOf, patchTool, promptedTool, startTool, summarize, tailCells, waitMs } from '../hooks/trace'
+import { CWD, PANE, SURFACES, USAGE, drain, engine, gate, runStep, textOf, toolChunk } from './kit'
 import type { Script } from './kit'
 
 const thinkThenBash: Script = {
@@ -65,21 +65,18 @@ test('a call put to the person reads as waiting on them, then as a stuck place p
     uses: [{ name: 'Edit', input: { file_path: `${CWD}/src/config.ts` } }],
     answer: '',
   }
-  let release: () => void = () => {}
-  const released = new Promise<void>(resolve => {
-    release = resolve
-  })
+  const dialog = gate()
   engine(on, [editStep], {
-    hold: name => (name === 'Edit' ? released : undefined),
+    person: name => (name === 'Edit' ? dialog.wait : undefined),
     check: name => (name === 'Edit' ? { decision: 'ask', reason: '파일 편집은 승인이 필요해요' } : { decision: 'allow' }),
   })
 
   await $.turn.start({ text: '설정 바꿔줘', turnId: 't2' })
   await runStep($, 't2', 0)
+  // No classic hook event tells the plugin of the dialog: the call is held with a person to ask, and nothing else.
   const call = $.tool.call({ tool: 'Edit', file_path: `${CWD}/src/config.ts`, old_string: 'a', new_string: 'b', tool_use_id: 'tu-edit' })
   await clock.settle()
-  await $.tool.check({ tool: 'Edit', input: { file_path: `${CWD}/src/config.ts` }, tool_use_id: 'tu-edit' })
-  await $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: { file_path: `${CWD}/src/config.ts` } })
+  await $.tool.check({ tool: 'Edit', input: { file_path: `${CWD}/src/config.ts` }, tool_use_id: 'tu-edit', approver: 'person' })
   await clock.advance(12_000)
 
   for (const surface of SURFACES) {
@@ -90,8 +87,7 @@ test('a call put to the person reads as waiting on them, then as a stuck place p
     await ui.unmount()
   }
 
-  await $.classic.PostToolUse({ tool_name: 'Edit', tool_input: {}, tool_response: {}, tool_use_id: 'tu-edit', duration_ms: 400 })
-  release()
+  dialog.open()
   await call
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
@@ -99,6 +95,32 @@ test('a call put to the person reads as waiting on them, then as a stuck place p
   expect(await ui.find({ type: 'Text', text: /! 사람 승인 1\d초\s+config\.ts\s+→ 권한 규칙 후보/ }), all).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /사람 승인 1 \(1\d초\)/ }), 'the harness line counts it').toBeDefined()
   expect(await ui.find({ type: 'Text', text: /승인 대기 1\d초/ }), 'where the time went').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /✓ 고침\s+config\.ts/ }), 'and the call ran').toBeDefined()
+  await ui.unmount()
+})
+
+test('a call the person refuses at the dialog reads as their refusal, not as a hook block', async ($, on) => {
+  const clock = mock.clock(on, { now: 6_000_000 })
+  const dialog = gate()
+  engine(on, [{ chunks: [toolChunk(0, 'tu-rm', 'Bash')], uses: [{ name: 'Bash', input: { command: 'rm -rf build' } }], answer: '' }], {
+    person: () => dialog.wait,
+    refuse: () => true,
+    check: () => ({ decision: 'ask' }),
+  })
+  await $.turn.start({ text: '빌드 지워줘', turnId: 't2r' })
+  await runStep($, 't2r', 0)
+  const call = $.tool.call({ tool: 'Bash', command: 'rm -rf build', tool_use_id: 'tu-rm' })
+  await clock.settle()
+  await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' }, tool_use_id: 'tu-rm', approver: 'person' })
+  await clock.advance(3_000)
+  dialog.open()
+  expect(await call, 'the refusal reaches the loop through the plugin').toMatchObject({ isError: true })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const all = await textOf(ui)
+  expect(await ui.find({ type: 'Text', text: /사용자가 거절함/ }), all).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /훅 개입 0/ }), 'no hook is blamed for it').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /사람 승인 1 \(3초\) · 거부 1|거부 1/ }), 'counted as refused').toBeDefined()
   await ui.unmount()
 })
 
@@ -140,10 +162,28 @@ test('the pure helpers read calls, widths, times and refusals', () => {
   expect(fmtDur(65_000)).toBe('1m 05s')
   expect(fmtDur(2_500)).toBe('2.5s')
 
+  // An asked call with a person to ask, held past what a decider takes: the dialog is up.
   const started = startTool([], 'main', 'x', 'Edit', 'a.ts', 0)
-  const asked = markPrompted(markChecked(started, 'x', { decision: 'ask' }), 'main', 'Edit', 10)
-  const refused = finishTool(asked, 'x', { kind: 'fail', text: "The user doesn't want to proceed with this tool use." }, 20)
+  const asked = patchTool(markChecked(started, 'x', { decision: 'ask' }), 'x', t => ({ ...t, checkedAt: 100, approver: 'person' }))
+  const held = asked[0]?.tools[0]
+  if (held === undefined) throw new Error('the asked call')
+  expect(promptedTool(held, 1_000), 'a moment held is no dialog yet').toBeUndefined()
+  expect(promptedTool({ ...held, judgedAt: 100 }, 60_000), 'held by the classifier, not the person').toBeUndefined()
+  expect(promptedTool({ ...held, approver: 'host' }, 60_000), 'no person to ask').toBeUndefined()
+  expect(promptedTool({ ...held, runAt: 200 }, 60_000), 'already running').toBeUndefined()
+  const waiting = promptedTool(held, 12_100)
+  expect(waiting).toMatchObject({ state: 'wait', isPrompted: true, promptedAt: 100 })
+  expect(promptedTool({ ...held, judgedAt: 100, judgeMs: 400, judge: 'allow' }, 12_100), 'held on after the classifier allowed').toMatchObject({ promptedAt: 500 })
+  if (waiting === undefined) throw new Error('the waiting call')
+  expect(waitMs(waiting, 12_100)).toBe(12_000)
+  expect(waitMs({ ...waiting, runAt: 9_100, endedAt: 20_000 }, 30_000), 'until its run began').toBe(9_000)
+  const refused = finishTool(patchTool(asked, 'x', () => waiting), 'x', { kind: 'fail', text: "The user doesn't want to proceed with this tool use." }, 20)
   expect(refused[0]?.tools[0]).toMatchObject({ state: 'deny', note: '사용자가 거절함' })
+  // Refused at once: only the person refuses a call no classifier refused.
+  expect(promptedTool(held, 300, true)).toMatchObject({ isPrompted: true })
+  // The classifier's refusal, read from the result where no event told of it.
+  const auto = finishTool(markChecked(started, 'x', { decision: 'ask' }), 'x', { kind: 'fail', text: 'Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Destructive] rm -rf' }, 20)
+  expect(auto[0]?.tools[0]).toMatchObject({ state: 'deny', verdict: '자동 모드가 거부', note: '[Destructive] rm -rf' })
 })
 
 test('a subagent shows as a card above the flow in the same words, and the pane follows it when its transcript is in view', async ($, on) => {

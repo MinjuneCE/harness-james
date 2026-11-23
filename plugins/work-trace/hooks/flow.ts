@@ -600,11 +600,9 @@ function toolDetail(t: TraceTool, a: Act, now: number): string {
   const ran = t.state === 'ok' || t.state === 'fail' || t.state === 'run' ? runMs(t, now) : undefined
   if (ran !== undefined) parts.push(`${(ran / 1000).toFixed(1)}s`)
   if (t.verdict !== undefined) parts.push(t.verdict)
-  const wait = waitMs(t, now)
   const split = judgeSplit(t, now)
-  if (t.isPrompted === true) parts.push(`사람 승인 ${(wait / 1000).toFixed(1)}s`)
-  else if (split !== undefined && 'judge' in split) parts.push(`자동 판정 ${(split.judge / 1000).toFixed(1)}s`)
-  else if (split !== undefined) parts.push(`판정·실행${split.isRunning ? ' 중' : ''} ${(split.mixed / 1000).toFixed(1)}s`)
+  if (split !== undefined) parts.push(`자동 판정${split.isJudging ? ' 중' : ''} ${(split.judge / 1000).toFixed(1)}s`)
+  if (t.isPrompted === true) parts.push(`사람 승인 ${(waitMs(t, now) / 1000).toFixed(1)}s`)
 
   return parts.join(' · ')
 }
@@ -613,29 +611,18 @@ function toolDetail(t: TraceTool, a: Act, now: number): string {
 const callKey = (t: TraceTool, a: Act): string => `${t.name} ${a.raw.replace(/\d+/g, '#').replace(/\s+/g, ' ').slice(0, 80)}`
 
 /**
- * How an auto-judged call's time splits. `tool.check` says a verdict was asked
- * for, not when it settled and the run began: until the call ends with its run
- * time (PostToolUse `duration_ms`), the decider's wait and the run are one span,
- * told neutrally and never flagged.
+ * The classifier's part of a call's time, when auto mode asked it: `tool.judge`
+ * times the question itself, and `tool.run` the run after it, so the two are
+ * told apart while the call is still going. Undefined for a call it never judged.
  */
-export type JudgeSplit = { judge: number; run: number } | { mixed: number; isRunning: boolean }
+export type JudgeSplit = { judge: number; run: number; isJudging: boolean }
 
 export function judgeSplit(t: TraceTool, now: number): JudgeSplit | undefined {
-  if (t.isAsked !== true || t.isPrompted === true || t.startedAt === undefined) return undefined
-  if (t.endedAt !== undefined && t.execMs !== undefined) {
-    return { judge: Math.max(0, t.endedAt - t.startedAt - t.execMs), run: t.execMs }
-  }
-  const isRunning = t.endedAt === undefined && (t.state === 'ask' || t.state === 'run')
-  const end = t.endedAt ?? (isRunning ? now : undefined)
-  if (end === undefined) return undefined
+  if (t.judgedAt === undefined) return undefined
+  const isJudging = t.judgeMs === undefined && t.endedAt === undefined
+  const judge = t.judgeMs ?? Math.max(0, (t.endedAt ?? now) - t.judgedAt)
 
-  return { mixed: Math.max(0, end - t.startedAt), isRunning }
-}
-
-/** The neutral words for a span the API cannot split: '판정·실행 중 12초'. */
-export function mixedText(m: { mixed: number; isRunning: boolean }): string {
-  const ms = fmtKo(m.mixed)
-  return ms === '' ? '' : `판정·실행${m.isRunning ? ' 중' : ''} ${ms}`
+  return { judge, run: t.runAt === undefined ? 0 : runMs(t, now), isJudging }
 }
 
 export type FlowOptions = {
@@ -762,17 +749,18 @@ export function buildFlow(steps: readonly TraceStep[], o: FlowOptions): FlowLine
         }
         const wait = waitMs(t, o.now)
         const split = judgeSplit(t, o.now)
-        if (split !== undefined && 'mixed' in split) {
-          // Judge and run not yet told apart: the time is said, nothing is flagged.
-          const text = mixedText(split)
-          if (text !== '') line.note = text
-        }
         if (t.isPrompted === true && wait >= BLOCK.humanWaitMs) {
           addAfter(line, signal('!', `사람 승인 ${fmtKo(wait)}`, [g.act.targets[0] ?? g.act.label], isIntended(t) ? HINT.intended : HINT.humanWait))
-        } else if (split !== undefined && 'judge' in split && split.judge >= BLOCK.judgeMs) {
-          addAfter(line, signal('!', `자동 판정 ${fmtKo(split.judge)}`, [g.act.targets[0] ?? g.act.label], HINT.judge))
         }
-        if ((t.state === 'ok' || t.state === 'fail' || t.state === 'run') && (split === undefined || 'judge' in split)) {
+        if (split?.isJudging === true && t.state === 'ask') {
+          // Still with the classifier: the line says whose wait it is.
+          const text = fmtKo(split.judge)
+          line.note = text === '' ? '자동 판정 중' : `자동 판정 중 ${text}`
+        }
+        if (split !== undefined && split.judge >= BLOCK.judgeMs) {
+          addAfter(line, signal('!', `자동 판정${split.isJudging ? ' 중' : ''} ${fmtKo(split.judge)}`, [g.act.targets[0] ?? g.act.label], HINT.judge))
+        }
+        if (t.state === 'ok' || t.state === 'fail' || t.state === 'run') {
           const ran = runMs(t, o.now)
           if (ran >= BLOCK.toolMs) addAfter(line, signal('!', `오래 걸림 ${fmtKo(ran)}`, [g.act.targets[0] ?? g.act.label], HINT.slowTool))
         }
@@ -803,7 +791,9 @@ export function buildFlow(steps: readonly TraceStep[], o: FlowOptions): FlowLine
 
   for (const c of o.compactions ?? []) {
     const ms = (c.endedAt ?? o.now) - c.startedAt
-    const how = c.trigger === 'auto' ? '자동' : c.trigger === 'manual' ? '수동' : c.trigger
+    const kind = c.trigger === 'auto' ? '자동' : c.trigger === 'manual' ? '수동' : c.trigger
+    // Read from the window shrinking, not from an event: said as a reading.
+    const how = c.isInferred === true ? `${kind}·추정` : kind
     lines.push(signal('!', `컨텍스트 압축${c.endedAt === undefined ? ' 중' : ''} ${fmtKo(ms)}`.trim() + ` (${how})`, []))
   }
   for (const note of o.notes ?? []) {
@@ -979,8 +969,6 @@ export function timeOf(steps: readonly TraceStep[], now: number, compactions: Tr
   let write = 0
   let human = 0
   let judge = 0
-  let mixed = 0
-  let isMixedRunning = false
   const spans: [number, number][] = []
   for (const s of steps) {
     const isOpen = s.phase !== 'done' && s.phase !== 'failed'
@@ -991,20 +979,14 @@ export function timeOf(steps: readonly TraceStep[], now: number, compactions: Tr
       wait += Math.max(0, first - s.startedAt)
     }
     for (const t of s.tools) {
-      const split = judgeSplit(t, now)
-      if (split !== undefined && 'mixed' in split) {
-        // Judge and run not told apart: one neutral span, neither the decider's nor the tool's.
-        mixed += split.mixed
-        if (split.isRunning) isMixedRunning = true
-        continue
-      }
-      const w = waitMs(t, now)
-      if (t.isPrompted === true) human += w
-      else if (split !== undefined) judge += split.judge
-      if (t.startedAt === undefined) continue
-      const end = t.endedAt ?? (t.state === 'run' || t.state === 'ask' ? now : undefined)
-      if (end === undefined) continue
-      const start = t.execMs !== undefined && t.endedAt !== undefined ? t.endedAt - t.execMs : t.startedAt + (t.isPrompted === true || t.isAsked === true ? w : 0)
+      judge += judgeSplit(t, now)?.judge ?? 0
+      human += waitMs(t, now)
+      // The tool's own span: from where its run began. A call never run (refused, cut off while held) has none.
+      const start =
+        t.runAt ??
+        (t.execMs !== undefined && t.endedAt !== undefined ? t.endedAt - t.execMs : t.state === 'ok' || t.state === 'fail' ? t.startedAt : undefined)
+      const end = t.endedAt ?? (t.state === 'run' ? now : undefined)
+      if (start === undefined || end === undefined) continue
       spans.push([start, end])
     }
   }
@@ -1017,7 +999,6 @@ export function timeOf(steps: readonly TraceStep[], now: number, compactions: Tr
     { label: '도구', ms: unionMs(spans) },
     { label: '승인 대기', ms: human },
     { label: '자동 판정', ms: judge },
-    { label: isMixedRunning ? '판정·실행 중' : '판정·실행', ms: mixed },
     { label: '컨텍스트 압축', ms: compact },
   ]
 }
@@ -1128,12 +1109,16 @@ export function nowOf(steps: readonly TraceStep[], end: { isEnded: boolean; outc
   if (live.length === 1 && live[0] !== undefined) {
     const t = live[0]
     const a = actOf(t, w)
-    // No event marks the verdict settled and the run begun: an asked call is one or the other.
-    const label = t.state === 'ask' ? `승인 판정 또는 ${a.progress}` : a.progress
-    return { label, detail: a.targets.join(' · '), since: t.startedAt ?? t.queuedAt, tone: 'busy', slowAfter: 30, stuckAfter: 120 }
+    if (t.state === 'ask') {
+      // Held before its run: by the classifier while it judges, else by whoever settles the ask.
+      const isJudging = t.judgedAt !== undefined && t.judgeMs === undefined
+      const detail = `${a.label}${a.targets.length > 0 ? ` ${a.targets.join(' · ')}` : ''}`
+      return { label: isJudging ? '자동 판정 중' : '승인 판정 중', detail, since: (isJudging ? t.judgedAt : t.checkedAt) ?? t.startedAt ?? t.queuedAt, tone: 'wait', slowAfter: 10, stuckAfter: 60 }
+    }
+    return { label: a.progress, detail: a.targets.join(' · '), since: t.runAt ?? t.startedAt ?? t.queuedAt, tone: 'busy', slowAfter: 30, stuckAfter: 120 }
   }
   if (live.length > 1) {
-    return { label: `도구 ${live.length}개 동시 실행 중`, since: Math.min(...live.map(t => t.startedAt ?? t.queuedAt)), tone: 'busy', slowAfter: 30, stuckAfter: 120 }
+    return { label: `도구 ${live.length}개 동시 실행 중`, since: Math.min(...live.map(t => t.runAt ?? t.startedAt ?? t.queuedAt)), tone: 'busy', slowAfter: 30, stuckAfter: 120 }
   }
   if (end?.isEnded === true) {
     const known = ENDED[end.outcome ?? 'done'] ?? { label: `끝남 (${end.outcome ?? '?'})`, tone: 'idle' as const }
