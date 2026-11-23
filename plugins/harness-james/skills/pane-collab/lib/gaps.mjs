@@ -1,6 +1,8 @@
 // pane-collab 장부 어긋남(gaps): 게시판·티켓 장부(있을 때)·pane-lead 등록부를 읽어 서로 어긋난 곳을 계산한다.
 // 읽기만 한다. 규칙 켜고 끄기, 계보, 주인 별칭은 설정(lib/config.mjs: 기본값 + .loop/collab/config.json)에서 온다.
 // 티켓 장부(기본 .loop/tickets, 설정 gaps.tickets)가 없으면 티켓 규칙(G1·G3·G5·G6·G8·G9)은 조용히 건너뛴다.
+// scope(프로젝트 이름)가 있으면 그 프로젝트 + common 항목만 본다. 티켓은 그 티켓을 인용한 게시판 항목으로 프로젝트를 정한다:
+// 인용 항목이 범위 안에 하나라도 있거나 하나도 없으면 보고, 다른 프로젝트에만 있으면 건너뛴다. 증거 찾기는 전체 항목에서 한다.
 //   G1 defect 항목은 열려 있는데 그 티켓은 고쳐졌거나 닫힘          주인: to 중 마지막으로 상태를 바꾼 역할(없으면 to 전부)
 //   G2 open·doing 항목이 staleHours 넘게 갱신 없음                  주인: G1과 같음(to가 all·user뿐이면 from)
 //   G3 티켓의 남은 일이 "<역할> 몫"으로 글로만 넘어가고 그 역할 앞 항목이 없음  주인: 글에 적힌 역할
@@ -12,7 +14,7 @@
 //   G9 열린 티켓인데 decisions.tsv가 비어 있음(기본 꺼짐)            주인: 티켓 route
 import fs from "node:fs";
 import path from "node:path";
-import { makeBoard, OPEN_STATUSES, localIso } from "./board.mjs";
+import { makeBoard, OPEN_STATUSES, COMMON, localIso } from "./board.mjs";
 import { loadConfig, BOARD_REL } from "./config.mjs";
 
 export { loadConfig };
@@ -115,21 +117,26 @@ export function shareRe(aliases) {
   return new RegExp(`(${keys.map((k) => (/^[A-Za-z0-9]/.test(k) ? `(?<![A-Za-z0-9_-])${esc(k)}` : esc(k))).join("|")})\\s*몫`);
 }
 
-export function computeGaps({ root, boardFile, now = new Date(), config = loadConfig({ root }) }) {
+export function computeGaps({ root, boardFile, now = new Date(), config = loadConfig({ root }), scope = null }) {
   const board = makeBoard({ file: boardFile ?? path.join(root, BOARD_REL), config });
-  const { events, items, skipped: skippedLines } = board.snapshot();
+  const { events, items: allItems, skipped: skippedLines } = board.snapshot();
+  const inScope = (i) => !scope || i.project === scope || i.project === COMMON;
+  const items = allItems.filter(inScope);
   const g = config.gaps;
   const ticketDir = g.tickets ? path.resolve(root, g.tickets) : null;
-  const { tickets, skipped: skippedTickets, on: ticketsOn } = readTickets(ticketDir, config.ownerAliases);
+  const { tickets: allTickets, skipped: skippedTickets, on: ticketsOn } = readTickets(ticketDir, config.ownerAliases);
   const registries = readRegistries(root, config.lineages);
-  const byId = new Map(tickets.map((t) => [t.id, t]));
+  const byId = new Map(allTickets.map((t) => [t.id, t]));
   const stale = g.staleHours * H;
   const on = g.rules;
   const share = shareRe(config.ownerAliases);
   const gaps = [];
   const localSince = (v) => { const d = new Date(v); return v && !Number.isNaN(d.getTime()) ? localIso(d) : ""; };
   const add = (rule, owners, ids, why, since) => gaps.push({ rule, owners: [...new Set(owners)], ids, why, since: localSince(since) });
-  const itemsFor = (tid) => items.filter((i) => ticketIdsIn(textOf(i)).includes(tid));
+  const cites = new Map();
+  for (const i of allItems) for (const tid of ticketIdsIn(textOf(i))) cites.set(tid, [...(cites.get(tid) ?? []), i]);
+  const itemsFor = (tid) => cites.get(tid) ?? [];
+  const tickets = scope ? allTickets.filter((t) => !itemsFor(t.id).length || itemsFor(t.id).some(inScope)) : allTickets;
   const passEvent = (list) => {
     let first = "";
     for (const i of list) for (const h of i.history) if (/PASS|통과/.test(h.note ?? "") && (!first || h.at < first)) first = h.at;
@@ -167,7 +174,7 @@ export function computeGaps({ root, boardFile, now = new Date(), config = loadCo
     const start = new Date(events[0].at);
     for (const r of registries) for (const m of r.mains) {
       if (!m.name || !m.startedAt || new Date(m.startedAt) < start) continue;
-      if (!items.some((i) => i.kind === "handover" && i.title.includes(m.name))) add("G4", [r.role], [m.name], "새 메인인데 게시판 handover 알림 없음", m.startedAt);
+      if (!allItems.some((i) => i.kind === "handover" && i.title.includes(m.name))) add("G4", [r.role], [m.name], "새 메인인데 게시판 handover 알림 없음", m.startedAt);
     }
   }
 
@@ -187,7 +194,7 @@ export function computeGaps({ root, boardFile, now = new Date(), config = loadCo
   if (on.G7) for (const i of items) {
     if (i.kind !== "run-request" || i.status === "cancelled") continue;
     const rid = i.links.find((l) => /^R\d+$/.test(l)) ?? (i.title.match(/\bR\d+\b/) ?? [])[0];
-    const res = items.some((r) => r.kind === "run-result" && (textOf(r).includes(i.id) || (rid && new RegExp(`\\b${rid}\\b`).test(r.title))));
+    const res = allItems.some((r) => r.kind === "run-result" && (textOf(r).includes(i.id) || (rid && new RegExp(`\\b${rid}\\b`).test(r.title))));
     const self = i.status === "done" && i.history.some((h) => h.status === "done" && h.note);
     if (!res && !self && (i.status === "done" || now - new Date(i.at) > stale)) add("G7", receivers(i), [i.id], "run-request에 run-result가 없음", i.at);
   }
@@ -238,7 +245,8 @@ const age = (iso, now) => {
   return Number.isFinite(h) ? (h >= 48 ? `${Math.round(h / 24)}일` : `${Math.max(0, Math.round(h))}시간`) : "?";
 };
 
-export function toMarkdown(view, { role, now, maxLines = 40 }) {
+export function toMarkdown(view, { role, now, maxLines = 40, head = [] }) {
+  if (head.length) return [...head, "", toMarkdown(view, { role, now, maxLines })].join("\n");
   const sections = [];
   sections.push(["### 쌓임", `- ${backlog(view, now)}`]);
   sections.push([`### 장부 어긋남 (${view.gaps.length})`, ...(view.gaps.length ? view.gaps.map((g) => `- ${gapLine(g)} · ${String(g.since).slice(5, 16)}부터`) : ["- 없음"])]);

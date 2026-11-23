@@ -111,7 +111,12 @@ test("broken lines are skipped and counted, not fatal", () => {
 
 test("missing board file lists empty", () => {
   const board = makeBoard({ file: tmpBoard() });
-  assert.deepEqual(board.list({ open: true }), { count: 0, items: [] });
+  const listed = board.list({ open: true });
+  assert.equal(listed.count, 0);
+  assert.deepEqual(listed.items, []);
+  // projects.json도 없으면 거르지 않고 경고만 붙는다
+  assert.match(listed.warn, /projects\.json이 없어요/);
+  assert.equal(listed.project, undefined);
 });
 
 test("CLI prints one JSON line and uses exit codes 0/1/2", async () => {

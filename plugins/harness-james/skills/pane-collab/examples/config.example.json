@@ -24,5 +24,8 @@
     "staleHours": 24,
     "rules": { "G7": false, "G8": false, "G9": false },
     "tickets": ".loop/tickets"
+  },
+  "legacyProjects": {
+    "_설명": "project 칸이 없는 옛 게시판 줄(프로젝트 게시판 전에 쓴 줄)을 나누는 규칙. 없으면 모두 common이에요. 꼴: ids {번호: 프로젝트}, commonKinds [종류], ranges [{through: 번호, project}]. 안내: references/project-guide.md \"옛 게시판 줄 나누기\""
   }
 }

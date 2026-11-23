@@ -2,7 +2,7 @@
 
 ## 목차
 
-- [config.json](#configjson) — 역할·계보·옛 이름·어긋남 규칙, 켜고 끄기, 이름 바꾸기
+- [config.json](#configjson) — 역할·계보·옛 이름·어긋남 규칙, 켜고 끄기, 이름 바꾸기, 옛 게시판 줄 나누기
 - [project.md](#projectmd) — 혼자 고치는 것, worktree, 공유 자원, 지킬 선(틀 포함)
 - [티켓 장부 (선택)](#티켓-장부-선택) — 어긋남 계산이 읽는 꼴
 - [세션과 계보](#세션과-계보)
@@ -13,7 +13,8 @@ pane-collab 스킬에는 역할 이름과 어느 프로젝트에나 맞는 규�
 <작업 공간>/
   .loop/collab/
     board.jsonl      ← 공용 게시판 (collab add 때 생김, 덧붙이기만)
-    config.json      ← 기계가 읽는 설정 (선택): 역할·계보·옛 이름·어긋남 규칙
+    projects.json    ← 목표 프로젝트와 역할마다 보고 있는 프로젝트 (collab switch가 만듦, 손으로 고치지 않음)
+    config.json      ← 기계가 읽는 설정 (선택): 역할·계보·옛 이름·어긋남 규칙·옛 줄 프로젝트 규칙
     project.md       ← 모델이 읽는 프로젝트 몫 (선택): 혼자 고치는 것, worktree, 자원, 지킬 선
   .research/pane-lead/<계보>/registry.json   ← pane-lead 등록부 (어긋남 계산이 읽기만 함)
   .loop/tickets/     ← 티켓 장부 (선택, 아래 "티켓 장부")
@@ -37,6 +38,7 @@ collab CLI, 어긋남 계산, 훅 `role-switch-guard`가 같은 모듈(`lib/conf
 | `gaps.listMax`, `gaps.mdMaxLines` | 숫자 | 8, 40 | `list`의 gaps 칸 줄 수, `gaps --format md` 줄 수 |
 | `gaps.tickets` | 경로 또는 `false` | `.loop/tickets` | 티켓 장부 폴더(작업 공간 기준). 폴더가 없으면 티켓 규칙을 조용히 건너뛰고, 쌓임 줄에서도 티켓 부분이 빠져요 |
 | `gaps.g8Owners` | 역할 목록 | `["impl", "scenarios"]` | G8(열린 티켓을 가리키는 게시판 항목이 없음)을 볼 티켓 주인 |
+| `legacyProjects` | `{ ids, commonKinds, ranges }` | 없음(모두 `common`) | `project` 칸이 없는 옛 게시판 줄을 프로젝트로 나누는 규칙. 아래 "옛 게시판 줄 나누기" |
 
 - 파일이 깨졌으면(JSON 오류, 객체가 아님) 기본값으로 돌고, CLI 출력에 `config.error`가 붙어요. 훅은 그동안 아무것도 막지 않아요.
 - 타입이 맞지 않는 항목(예: `"pm": "off"`)은 건너뛰고 `config.ignored`에 적어요. 꺼진 것으로 읽지 않아요.
@@ -64,6 +66,27 @@ collab CLI, 어긋남 계산, 훅 `role-switch-guard`가 같은 모듈(`lib/conf
 ```
 
 - pane-lead 등록부 폴더도 옮겨요(`.research/pane-lead/tst/` → `qa/`). 옛 이름 메인은 다음 인계를 `pane-lead handover --prefix <새 계보> --doc <문서>`로 해서 새 이름으로 넘어가요.
+
+### 옛 게시판 줄 나누기
+
+프로젝트 게시판(`collab switch`)을 쓰기 전에 남긴 줄에는 `project` 칸이 없어요. 기본으로 그런 줄은 모두 공통(`common`)으로 읽어서 어느 프로젝트에서나 보여요. 옛 줄을 프로젝트별로 나누고 싶으면 규칙을 적어요. 게시판 줄은 고치지 않고, 읽을 때만 적용돼요.
+
+```json
+{
+  "legacyProjects": {
+    "ids": { "C-261113-03": "billing-v2" },
+    "commonKinds": ["handover", "resource", "worktree"],
+    "ranges": [
+      { "through": "C-261110-99", "project": "billing-v2" },
+      { "through": "C-261119-99", "project": "signup-flow" }
+    ]
+  }
+}
+```
+
+- 차례: `ids`(번호 하나씩) → `commonKinds`(이 종류는 공통, 기본은 인계·자원·worktree) → `ranges`(번호가 `through` 이하인 첫 구간) → 공통.
+- 프로젝트 이름은 `collab switch --new`로 등록한 이름이어야 그 프로젝트 목록에 나와요.
+- 옛 줄을 하나만 옮길 때는 규칙 대신 `collab update <번호> --project <이름>`이 간단해요.
 
 ## project.md
 

@@ -9,6 +9,8 @@
 //   roleAliases   { "<옛 역할 이름>": "<역할>" }    게시판이 들어오는 이름과 옛 줄을 지금 이름으로 읽는다
 //   ownerAliases  { "<글 속 이름>": "<주인>" }      티켓 route·"<이름> 몫" 글 → 주인. 역할·계보·별칭 이름은 저절로 들어간다
 //   gaps          { staleHours, rules: { G1…G9 }, listMax, mdMaxLines, tickets, g8Owners }
+//   legacyProjects { ids: {"<C-ID>": "<프로젝트>"}, commonKinds: [종류], ranges: [{through: "<C-ID>", project}] }
+//                 project 칸이 없는 게시판 줄(프로젝트 게시판 전에 쓴 줄)을 나누는 규칙. 없으면 그런 줄은 모두 common
 //
 // 파일이 없으면 기본값이다. 깨졌으면(JSON 오류, 객체가 아님) 기본값을 쓰고 error에 이유를 남긴다.
 // 타입이 맞지 않는 항목은 건너뛰고 ignored에 적는다. 훅은 error가 있으면 아무것도 막지 않는다.
@@ -24,6 +26,7 @@ export const DEFAULTS = Object.freeze({
   oldLineages: {},
   roleAliases: {},
   ownerAliases: {},
+  legacyProjects: {},
   gaps: {
     staleHours: 24,
     rules: { G1: true, G2: true, G3: true, G4: true, G5: true, G6: true, G7: false, G8: false, G9: false },
@@ -56,7 +59,7 @@ export function resolveRoot({ root, env = process.env, cwd = process.cwd() } = {
 
 export const configPath = ({ root, env = process.env } = {}) => env.COLLAB_CONFIG || (root ? path.join(root, CONFIG_REL) : null);
 
-/** 기본값 + 프로젝트 설정. { roles, lineages, oldLineages, roleAliases, ownerAliases, gaps, file, exists, error?, ignored? } */
+/** 기본값 + 프로젝트 설정. { roles, lineages, oldLineages, roleAliases, ownerAliases, gaps, legacyProjects, file, exists, error?, ignored? } */
 export function loadConfig({ root, file, env = process.env } = {}) {
   const where = file ?? configPath({ root, env });
   let raw = null;
@@ -130,7 +133,48 @@ export function merge(raw) {
     if (Array.isArray(g.g8Owners) && g.g8Owners.every(str)) gaps.g8Owners = [...g.g8Owners];
     else ignored.push("gaps.g8Owners");
   }
-  return { roles, lineages, oldLineages, roleAliases, ownerAliases, gaps, ...(ignored.length ? { ignored } : {}) };
+  const legacyProjects = legacy(raw?.legacyProjects, ignored);
+  return { roles, lineages, oldLineages, roleAliases, ownerAliases, gaps, legacyProjects, ...(ignored.length ? { ignored } : {}) };
+}
+
+const PROJECT_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const ITEM_ID = /^C-\d{6}-\d{2,}$/;
+
+/** legacyProjects 칸을 검사한다. 맞지 않는 항목은 ignored에 남기고 건너뛴다. */
+function legacy(src, ignored) {
+  if (src === undefined) return {};
+  if (!isObj(src)) {
+    ignored.push("legacyProjects");
+    return {};
+  }
+  const out = {};
+  const isProject = (v) => typeof v === "string" && (v === "common" || PROJECT_NAME.test(v));
+  if (src.ids !== undefined) {
+    if (!isObj(src.ids)) ignored.push("legacyProjects.ids");
+    else {
+      out.ids = {};
+      for (const [k, v] of Object.entries(src.ids)) {
+        if (k.startsWith("_")) continue;
+        if (ITEM_ID.test(k) && isProject(v)) out.ids[k] = v;
+        else ignored.push(`legacyProjects.ids.${k}`);
+      }
+    }
+  }
+  if (src.commonKinds !== undefined) {
+    if (Array.isArray(src.commonKinds) && src.commonKinds.every((k) => typeof k === "string")) out.commonKinds = [...src.commonKinds];
+    else ignored.push("legacyProjects.commonKinds");
+  }
+  if (src.ranges !== undefined) {
+    if (!Array.isArray(src.ranges)) ignored.push("legacyProjects.ranges");
+    else {
+      out.ranges = [];
+      src.ranges.forEach((r, i) => {
+        if (isObj(r) && ITEM_ID.test(r.through ?? "") && isProject(r.project)) out.ranges.push({ through: r.through, project: r.project });
+        else ignored.push(`legacyProjects.ranges.${i}`);
+      });
+    }
+  }
+  return out;
 }
 
 export const roleNames = (config) => Object.keys(config.roles);
