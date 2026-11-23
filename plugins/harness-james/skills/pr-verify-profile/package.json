@@ -1,0 +1,8 @@
+{
+  "name": "pr-verify-profile",
+  "private": true,
+  "type": "module",
+  "description": "/pr-verify 프로필 초안·구조 목록 변경안 도구. 외부 패키지 의존성 없음",
+  "engines": { "node": ">=18" },
+  "scripts": { "test": "node --test test/" }
+}
