@@ -6,11 +6,13 @@ james가 쓰는 Claude Code 하네스를 묶은 플러그인 마켓플레이스�
 
 | 플러그인 | 구성요소 | 하는 일 |
 |---|---|---|
-| `harness-james` | 스킬 `pane-lead` | herdr 위에서 메인 Claude pane 하나와 서브 pane(계보당 최대 5개)으로 큰 작업을 나눠 해요. |
+| `harness-james` | 스킬 `pane-lead` | herdr 위에서 메인 Claude pane 하나와 서브 pane(계보당 최대 5개)으로 큰 작업을 나눠 해요. 0.8.0부터 서브 기본 모델은 Opus 5.5이고, `spawn --fable`이면 Fable 주간 한도 90%까지 Fable 5.2예요(아래 "pane-lead 서브 모델"). |
+| | 스킬 `pane-sub` | pane-lead 서브가 지키는 공통 규칙(범위와 금지, 결과 파일 형식, "메인에게" 칸, 보통·실행 종류, Fable 모델 층). spawn이 시작 프롬프트 `/harness-james:pane-sub`로 불러요. 0.8.0에서 더했어요. |
 | | 스킬 `skill-check` + 에이전트 `skill-check-judge` | 스킬 폴더 하나를 규칙 검사와 rubric 판정으로 채점해 S~F 등급과 고칠 점을 알려 줘요. |
 | | 스킬 `pr-verify` + 에이전트 `verify-{orchestrator,judge,refuter,explorer}` | 프로파일이 있는 레포의 브랜치·PR을 보안·성능·아키텍처·신뢰성·관측성·테스트·접근성 차원에서 채점해 BLOCK·REVIEW_REQUIRED·PASS를 판정해요(Opus 5.5 max). 0.6.0부터 이름이 `verify`에서 `pr-verify`로 바뀌었어요(아래 "pr-verify"). |
 | | 스킬 `verify-design` + 에이전트 `design-verify-{judge,refuter}` | 설계 문서 묶음을 rubric 59기준으로 검증해요. light(무료) · standard · deep(Workflow). |
-| | 스킬 `pane-collab` | 역할을 나눈 여러 메인 세션(기본 impl·qa·scenarios·infra·pm)이 SendMessage와 공용 게시판으로 일을 주고받는 규칙, 메시지 양식, 게시판 CLI(아래 "pane-collab"). 0.7.0에서 더했어요. |
+| | 스킬 `pane-collab` | 역할을 나눈 여러 메인 세션(기본 impl·qa·scenarios·infra·pm)이 SendMessage와 공용 게시판으로 일을 주고받는 규칙, 메시지 양식, 게시판 CLI(아래 "pane-collab"). 0.7.0에서 더했고, 0.8.0부터 게시판이 프로젝트별로 나뉘어요. |
+| | 스킬 `project-sub` | 지금 게시판 프로젝트가 아닌 프로젝트의 간단한 일을, 게시판을 전환하지 않고 그 프로젝트에 고정된 서브 하나에 맡겨요. 0.8.0에서 더했어요. |
 | | 훅 6개 | push·merge 확인, 보호 브랜치 직접 push 거부, PR 전 pr-verify 게이트, herdr pane 계정 프로필 확인, verify 에이전트 가드, 꺼 둔 pane-collab 역할에게 가는 SendMessage 거부(아래 "훅"). |
 | `work-trace` | mod | 세션 오른쪽 패널에 작업 진행, 막힌 곳, 모델이 무엇을 왜 골랐는지를 실시간으로 보여 줘요. |
 | `context-band` | mod | 프롬프트 바로 위에 컨텍스트 사용량, 자동 압축까지 남은 양, 메모리 파일, 비용, 사용량 한도를 한 줄로 보여 줘요. |
@@ -55,6 +57,8 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
   - 새 프로필에 로그인이 없으면 handover는 새 pane의 로그인·테마 화면을 보고 `login-required`로 멈춰요. 그 프로필로 한 번 로그인한 뒤 다시 실행해요.
   - 플러그인 설치는 프로필마다 따로예요. 쓰는 프로필마다 harness-james를 설치해요.
 - 기록은 프로젝트 `.research/pane-lead/`와 `~/.local/state/pane-lead`에 남아요.
+- 서브의 규칙은 같은 플러그인의 `pane-sub` 스킬에 있어요. spawn은 서브에 `/harness-james:pane-sub <종류> <모델 층> <지시서> <결과 파일>`을 보내요. 이 스킬이 없으면 spawn이 `no-pane-sub`로 멈춰요(플러그인을 다시 설치해요).
+- `spawn --env NAME=value[,…]`은 그 서브의 설정 env에 값을 더해요(`project-sub`의 `COLLAB_PROJECT` 같은 표시). `PANE_LEAD_*`·`GIT_CONFIG_*`·`CLAUDE_CONFIG_DIR`은 거절해요.
 - 선택: `.research/pane-lead/attach.json`에 계보별 명령을 적으면 handover가 그 출력을 인계 문서 끝 "기계 계산" 절로 붙여요. 형식은 `{ "handover": { "<접두어>": { "cmd": ["node", "x.mjs", "--doc", "{doc}"], "title": "…", "timeout": 10000 } } }`이고, `{prefix}`·`{doc}`·`{root}`가 채워져요. 실패해도 인계는 이어져요.
 
 ## 프로젝트에서 처음 쓰기
@@ -92,6 +96,16 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
    - 플랫폼 검사 도구는 프로파일 `tools[]`에 `kind: "module"`로 더해요.
    - framework·scoring·rubrics는 플러그인 기본값을 쓰고, 프로젝트 평가 폴더에 같은 파일이 있으면 그쪽이 우선이에요.
 
+### pane-lead 서브 모델
+
+- 서브는 기본 `claude-opus-5-5`로 떠요. 사용자가 Fable로 하라고 한 일만 `spawn --fable`로 띄우고, 그때 서브가 돌 계정의 Fable 주간 한도가 90% 미만이면 `claude-fable-5-2`, 90% 이상이면 Opus예요. `--model fable|opus`는 한도와 상관없이 정해요. 어느 쪽이든 `--effort`는 넘기지 않아요(모델별 effort는 사용자 settings).
+- 한도는 그 계정으로 띄운 headless claude의 `get_usage` 응답에서 읽어요(모델 호출 없음). 계정(설정 폴더)별 마지막 값은 `~/.local/state/pane-lead/fable-limit/<default|dir-…>.json`에 두고 5분 동안 다시 묻지 않아요. `pane-lead status`의 `fable`·`next_sub`에 나와요.
+- 일하던 Fable 서브가 한도 창에서 멈추면 `pane-lead switch <name>`이 "Switch to …"를 골라 같은 서브를 Opus로 이어 가요. 창이 없으면 닫고 `spawn --model opus`로 다시 띄워요. `/model`은 쓰지 않아요(새 세션 기본 모델로 저장돼요). 한도 창의 실제 화면은 아직 본 적이 없어서 Claude Code 2.1.325의 문자열로 알아봐요.
+- 사용량 크레딧(추가 과금)을 켠 계정에서는 한도 창에 "Continue with usage credits"가 나올 수 있어요. `switch`는 그것을 고르지 않아요.
+- `pane-lead model-layer off|on|status`는 `pane-sub`의 Fable 모델 층(네 줄)만 끄고 켜요. 그 뒤에 띄우는 서브부터예요.
+- 서브의 결과 파일 맨 위가 `진행:` 줄이면 아직 일하는 중이에요. `status`의 `progress`와 `wait`의 `in_progress`로 보여요.
+- 서브 가드(sub-guard)는 원격에 올리는 git 명령과 PR 만들기·머지 명령에 더해, `gh api`·`curl`로 PR을 만들거나 머지하는 호출도 막아요.
+
 ### pane-collab
 
 여러 메인 세션이 역할을 나눠 한 작업 공간에서 일할 때 써요. 역할 메인은 pane-lead 계보로 띄워요(기본 계보 `impl`·`qa`·`scn`·`infra`·`pm`, 세션 이름 `<계보>-main-N`). 메시지를 보내거나 받을 때 모델이 스스로 부르기도 하고, `/harness-james:pane-collab`으로 직접 불러도 돼요.
@@ -102,12 +116,15 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
    - `.loop/collab/project.md`: 역할별로 혼자 고치는 것, worktree 표, 공유 자원, 프로젝트의 지킬 선. 스킬이 먼저 읽어요.
 3. 역할을 끄려면 `{ "roles": { "pm": false } }`. 그 역할은 `collab add --to`에서 거절되고, `pm-main-*`에게 가는 SendMessage는 훅 `role-switch-guard`가 막아요. 지금 값은 `collab roles`로 봐요.
 4. 어긋남 계산(`collab gaps`)은 게시판, pane-lead 등록부(`.research/pane-lead/<계보>/registry.json`), 티켓 장부(선택, 기본 `.loop/tickets`)를 대어 봐요. 티켓 장부가 없으면 티켓 규칙은 조용히 건너뛰어요.
-5. CLI는 `node <플러그인>/skills/pane-collab/bin/collab.mjs <명령>`이에요. 스킬을 부르면 경로가 채워진 명령이 보여요. 작업 공간은 `--root` > `COLLAB_ROOT` > `PANE_LEAD_ROOT` > `CLAUDE_PROJECT_DIR` > cwd 위로 처음 만나는 `.loop/collab` > cwd 순서로 찾아요.
+5. 프로젝트별 게시판(0.8.0): 항목마다 `project` 칸이 있고, 목표 프로젝트와 역할마다 보고 있는 프로젝트는 `.loop/collab/projects.json`(도구가 씀)에 있어요. `collab switch <이름> --new --title "<뜻>" --by <역할>`로 처음 만들기 전에는 프로젝트 없이 지금처럼 전부 보여요(출력에 `warn`). 전환은 사용자가 시킬 때만이고, 다른 역할은 알림을 받아 `collab switch --accept`로 넘어가요. 서브(`PANE_LEAD_ROLE=sub`)는 전환하지 못하고, 다른 프로젝트 게시판은 `project-sub` 스킬이 `COLLAB_PROJECT`로 고정한 서브만 봐요.
+   - 0.7.0 게시판의 옛 줄(`project` 칸 없음)은 공통(`common`)으로 읽어서 어느 프로젝트에서나 보여요. 나누려면 설정 `legacyProjects`에 규칙을 적어요(project-guide "옛 게시판 줄 나누기"). 줄은 고치지 않아요.
+6. CLI는 `node <플러그인>/skills/pane-collab/bin/collab.mjs <명령>`이에요. 스킬을 부르면 경로가 채워진 명령이 보여요. 작업 공간은 `--root` > `COLLAB_ROOT` > `PANE_LEAD_ROOT` > `CLAUDE_PROJECT_DIR` > cwd 위로 처음 만나는 `.loop/collab` > cwd 순서로 찾아요.
 
 ### 권한
 
 - pr-verify·verify-design은 `node <플러그인>/skills/<스킬>/scripts/*.mjs`를 Bash로 실행해요. 자주 쓰면 `Bash(node:*)` 허용을 고려해요.
 - pane-collab은 스킬 `allowed-tools`로 자기 collab CLI 실행과 양식 읽기를 허용해 둬요. 스킬을 부른 세션에서는 확인 창 없이 돌아요(2.1.322 default 모드에서 확인, 스킬 없이 같은 명령은 확인을 요구).
+- pane-sub는 자기 폴더 읽기(`layers/fable.md`)를, project-sub는 pane-collab CLI 실행과 pane-lead 지시서 양식 읽기를 허용해 둬요. project-sub는 이웃 스킬을 `${CLAUDE_PLUGIN_ROOT}/skills/<스킬>/…`로 가리켜요. Bash 허용 규칙은 명령 글자 그대로 맞춰 보고 Read 규칙은 정리한 경로로 맞춰 봐서, `${CLAUDE_SKILL_DIR}/../` 꼴은 Read에서 막혀요(2.1.330 `--plugin-dir`에서 확인).
 
 ## 훅이 하는 일
 

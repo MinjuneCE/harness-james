@@ -1,7 +1,7 @@
 {
   "name": "harness-james",
-  "version": "0.7.0",
-  "description": "프로젝트에 묶이지 않은 Claude Code 하네스: pane-lead(herdr 다중 pane 운영), pane-collab(역할 세션 사이 소통·공용 게시판), skill-check(스킬 점검), pr-verify(PR 전 코드 검증), verify-design(설계 검증) 스킬과 그 에이전트, push·PR 흐름 훅, herdr pane 계정 프로필 훅, verify 에이전트 가드, 꺼 둔 역할에게 가는 SendMessage 막기 훅.",
+  "version": "0.8.0",
+  "description": "프로젝트에 묶이지 않은 Claude Code 하네스: pane-lead(herdr 다중 pane 운영), pane-sub(서브 pane 공통 규칙), pane-collab(역할 세션 사이 소통·프로젝트별 공용 게시판), project-sub(다른 프로젝트의 간단한 일을 고정 서브에 맡기기), skill-check(스킬 점검), pr-verify(PR 전 코드 검증), verify-design(설계 검증) 스킬과 그 에이전트, push·PR 흐름 훅, herdr pane 계정 프로필 훅, verify 에이전트 가드, 꺼 둔 역할에게 가는 SendMessage 막기 훅.",
   "author": {
     "name": "james"
   }
