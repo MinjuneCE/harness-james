@@ -1,0 +1,4 @@
+Source: https://github.com/github/spec-kit/tree/0443760542e7e5269724744a2ac55c4bd386d095/templates (fetched 2026-10-12)
+Files copied unchanged: checklist-template.md, constitution-template.md, plan-template.md, spec-template.md, tasks-template.md
+License: MIT, Copyright GitHub, Inc. Full text in LICENSE next to this file (from the same commit).
+Not copied: templates/commands/, templates/vscode-settings.json
