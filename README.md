@@ -14,6 +14,8 @@ james가 쓰는 Claude Code 하네스를 묶은 플러그인 마켓플레이스�
 | | 스킬 `verify-design` + 에이전트 `design-verify-{judge,refuter}` | 설계 문서 묶음을 rubric 59기준으로 검증해요. light(무료) · standard · deep(Workflow). |
 | | 스킬 `pane-collab` | 역할을 나눈 여러 메인 세션(기본 impl·qa·scenarios·infra·pm)이 SendMessage와 공용 게시판으로 일을 주고받는 규칙, 메시지 양식, 게시판 CLI(아래 "pane-collab"). 0.7.0에서 더했고, 0.8.0부터 게시판이 프로젝트별로 나뉘어요. |
 | | 스킬 `project-sub` | 지금 게시판 프로젝트가 아닌 프로젝트의 간단한 일을, 게시판을 전환하지 않고 그 프로젝트에 고정된 서브 하나에 맡겨요. 0.8.0에서 더했어요. |
+| | 스킬 `spec-kit` | GitHub spec-kit 형식의 스펙 폴더(`.specify/templates`·`.specify/memory/constitution.md`·`specs/NNN-이름/`)를 프로젝트에 놓고, 기능 폴더를 spec·plan과 결정 기록으로 시작해요. 템플릿은 spec-kit 고정 커밋 원본 그대로예요(MIT). 0.8.0에서 더했어요(아래 "spec-kit과 decision-log"). |
+| | 스킬 `decision-log` | 기능 폴더의 `decisions.md`에 사용자 결정(D)과 에이전트 제안(P)을 덧붙여 남기고, `decision-check`로 spec·plan의 "반영한 결정" 머리 줄이 기록보다 뒤처졌는지, 대체된 결정을 아직 가리키는지 봐요. 0.8.0에서 더했어요. |
 | | 훅 6개 | push·merge 확인, 보호 브랜치 직접 push 거부, PR 전 pr-verify 게이트, herdr pane 계정 프로필 확인, verify 에이전트 가드, 꺼 둔 pane-collab 역할에게 가는 SendMessage 거부(아래 "훅"). |
 | `work-trace` | mod | 세션 오른쪽 패널에 작업 진행, 막힌 곳, 모델이 무엇을 왜 골랐는지를 실시간으로 보여 줘요. |
 | `context-band` | mod | 프롬프트 바로 위에 컨텍스트 사용량, 자동 압축까지 남은 양, 메모리 파일, 비용, 사용량 한도를 한 줄로 보여 줘요. |
@@ -122,11 +124,24 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
    - 0.7.0 게시판의 옛 줄(`project` 칸 없음)은 공통(`common`)으로 읽어서 어느 프로젝트에서나 보여요. 나누려면 설정 `legacyProjects`에 규칙을 적어요(project-guide "옛 게시판 줄 나누기"). 줄은 고치지 않아요.
 6. CLI는 `node <플러그인>/skills/pane-collab/bin/collab.mjs <명령>`이에요. 스킬을 부르면 경로가 채워진 명령이 보여요. 작업 공간은 `--root` > `COLLAB_ROOT` > `PANE_LEAD_ROOT` > `CLAUDE_PROJECT_DIR` > cwd 위로 처음 만나는 `.loop/collab` > cwd 순서로 찾아요.
 
+### spec-kit과 decision-log
+
+스펙을 spec-kit 형식으로 쓰고, 진행 중에 바뀐 결정을 기능 폴더마다 기록해요. spec-kit CLI(`specify`)와 `/speckit.*` 명령은 들어 있지 않아요. 템플릿과 폴더 구조만이에요.
+
+1. 스펙 루트를 정해요. 레포 하나면 레포 루트(`.`), 작업 공간 하나에서 레포 여럿을 다루면 `docs/sdd/<레포>`처럼 레포마다 둬요.
+2. `/harness-james:spec-kit init <스펙 루트>`: 원본 템플릿 5개와 `LICENSE`·`SOURCE.txt`를 `<스펙 루트>/.specify/templates/`에, constitution 자리를 `.specify/memory/constitution.md`에 놓아요. 있는 파일은 덮어쓰지 않아요.
+3. `/harness-james:spec-kit feature <스펙 루트> <짧은 이름>`: 다음 번호의 `specs/NNN-이름/`에 spec.md·plan.md(제목 아래 `**반영한 결정**: 없음` 줄)와 decisions.md를 만들어요. `--no-decisions`면 원본 템플릿 그대로 spec·plan만이에요.
+4. 결정이 나오면 decisions.md에 적고(`/harness-james:decision-log`), spec·plan을 고친 뒤 머리 줄 번호를 올려요. `decision-check <기능 폴더>`가 뒤처진 문서, 대체된 결정을 가리키는 줄, 반영 위치에 인용이 없는 결정을 알려 줘요. `--current`는 유효한 결정과 다음 번호, `--sync-table`은 decisions.md의 "지금 유효한 결정" 표를 다시 만들어요.
+- 두 스크립트 모두 프로젝트 폴더(`CLAUDE_PROJECT_DIR`, 없으면 명령을 부른 현재 폴더) 밖에는 쓰지 않아요. 프로젝트 루트에서 부르면 돼요.
+- 결정 기록을 어느 저장소에 둘지는 프로젝트가 정해요. 여럿이 쓰는 레포에 개인 작업 기록을 넣지 않으려면 작업 공간 쪽 문서 폴더에 스펙 루트를 둬요.
+- 템플릿 출처: [github/spec-kit](https://github.com/github/spec-kit) `0443760542e7`의 `templates/`(2026-10-12에 받음), MIT License, Copyright GitHub, Inc. 전문은 `skills/spec-kit/templates/LICENSE`예요.
+- pane-collab의 결정 기록 양식(`templates/decision.md`)은 설계 결정의 기록 위치로 기능 폴더 `decisions.md`를 먼저 가리켜요.
+
 ### 권한
 
 - pr-verify·verify-design은 `node <플러그인>/skills/<스킬>/scripts/*.mjs`를 Bash로 실행해요. 자주 쓰면 `Bash(node:*)` 허용을 고려해요.
 - pane-collab은 스킬 `allowed-tools`로 자기 collab CLI 실행과 양식 읽기를 허용해 둬요. 스킬을 부른 세션에서는 확인 창 없이 돌아요(2.1.322 default 모드에서 확인, 스킬 없이 같은 명령은 확인을 요구).
-- pane-sub는 자기 폴더 읽기(`layers/fable.md`)를, project-sub는 pane-collab CLI 실행과 pane-lead 지시서 양식 읽기를 허용해 둬요. project-sub는 이웃 스킬을 `${CLAUDE_PLUGIN_ROOT}/skills/<스킬>/…`로 가리켜요. Bash 허용 규칙은 명령 글자 그대로 맞춰 보고 Read 규칙은 정리한 경로로 맞춰 봐서, `${CLAUDE_SKILL_DIR}/../` 꼴은 Read에서 막혀요(2.1.330 `--plugin-dir`에서 확인).
+- pane-sub는 자기 폴더 읽기(`layers/fable.md`)를, project-sub는 pane-collab CLI 실행과 pane-lead 지시서 양식 읽기를 허용해 둬요. spec-kit·decision-log는 자기 스크립트 실행과 자기 폴더 읽기(템플릿·양식)를 허용해 둬요. project-sub는 이웃 스킬을 `${CLAUDE_PLUGIN_ROOT}/skills/<스킬>/…`로 가리켜요. Bash 허용 규칙은 명령 글자 그대로 맞춰 보고 Read 규칙은 정리한 경로로 맞춰 봐서, `${CLAUDE_SKILL_DIR}/../` 꼴은 Read에서 막혀요(2.1.330 `--plugin-dir`에서 확인).
 
 ## 훅이 하는 일
 
@@ -162,6 +177,8 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 (cd plugins/harness-james/skills/pr-verify-profile && node --test test/)
 (cd plugins/harness-james/skills/verify-design && node --test test/ && node scripts/check-workflow.mjs)
 (cd plugins/harness-james/skills/pane-collab && node --test test/)
+(cd plugins/harness-james/skills/decision-log && node --test test/)
+(cd plugins/harness-james/skills/spec-kit && node --test test/)
 (cd plugins/harness-james/hooks && node --test test/)
 # mod
 claude plugin test plugins/work-trace
