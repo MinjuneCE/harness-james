@@ -2,6 +2,25 @@
 
 james가 쓰는 Claude Code 하네스를 묶은 플러그인 마켓플레이스예요. 레포 자체가 마켓플레이스이고, 플러그인 3개가 들어 있어요.
 
+## 이 레포가 보여 주는 것
+
+특정 프로젝트에 묶이지 않고 쓰는 범용 Claude Code 하네스예요. 에이전트에게 일을 맡길 때 쓰는 가드, 검증, 협업 규칙, 결정 기록이 들어 있어요.
+
+- **되돌릴 수 없는 동작 앞의 가드 훅:** push·merge는 확인을 받고 보호 브랜치 직접 push는 거부해요. 가드가 뜨지 못하거나 시간을 넘기면 통과시키지 않고 막아요. [`hooks/`](plugins/harness-james/hooks/)
+- **만든 쪽이 채점하지 않는 검증:** 코드 변경과 설계 문서를 따로 띄운 판정 에이전트가 rubric으로 채점하고, 찾은 것은 다른 에이전트가 반증해요. [`pr-verify`](plugins/harness-james/skills/pr-verify/) · [`verify-design`](plugins/harness-james/skills/verify-design/)
+- **역할 세션 협업과 장부 계산:** 메인 하나와 서브 여럿으로 일을 나누고, 역할 세션은 공용 게시판에 기록을 남겨요. 게시판과 등록부를 대어 어긋난 곳을 계산해요. [`pane-lead`](plugins/harness-james/skills/pane-lead/) · [`pane-sub`](plugins/harness-james/skills/pane-sub/) · [`pane-collab`](plugins/harness-james/skills/pane-collab/)
+- **Spec Kit에 결정 기록과 반영 검사를 더한 것:** spec-kit 형식의 기능 폴더에 결정 기록을 두고, spec·plan이 기록보다 뒤처졌는지 검사해요. [`spec-kit`](plugins/harness-james/skills/spec-kit/) · [`decision-log`](plugins/harness-james/skills/decision-log/) · 돌려 본 예시 [`examples/sdd-sample/`](examples/sdd-sample/)
+
+**확인한 방법:** 스크립트가 있는 스킬과 훅에는 `node --test` 시험이 있어요(mod는 `claude plugin test`). 아래 "개발" 절의 명령으로 돌려요.
+
+**하지 않는 것**
+
+- spec-kit CLI(`specify`)와 `/speckit.*` 명령은 들어 있지 않아요. 템플릿과 폴더 구조만이에요.
+- decision-check는 결정 번호가 인용됐는지만 봐요. 내용이 결정대로 반영됐는지는 사람과 에이전트가 읽어야 알아요.
+- pane-lead는 herdr pane 안에서만 동작하고, pr-verify는 프로파일이 있는 레포에서만 돌아요.
+
+**만든 방식:** 설계·결정·승인은 본인이 하고, 구현은 Claude Code 에이전트와 함께 했어요.
+
 ## 무엇이 들어 있나
 
 | 플러그인 | 구성요소 | 하는 일 |
