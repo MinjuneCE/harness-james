@@ -41,3 +41,16 @@ test("plugin paths only: the CLI is run from the plugin, settings live beside th
   const all = [doc, ...fs.readdirSync(path.join(SKILL, "templates")).map((f) => fs.readFileSync(path.join(SKILL, "templates", f), "utf8")), fs.readFileSync(path.join(SKILL, "references/project-guide.md"), "utf8")].join("\n");
   assert.doesNotMatch(all, /\.claude\/skills\/pane-collab/);
 });
+
+test("project-sub: its ${CLAUDE_PLUGIN_ROOT} paths exist, the allow rules match the commands it shows, no user-skill paths", () => {
+  const plugin = path.join(SKILL, "..", "..");
+  const text = fs.readFileSync(path.join(plugin, "skills", "project-sub", "SKILL.md"), "utf8");
+  const [, ps] = text.match(/^---\n([\s\S]*?)\n---\n/);
+  const refs = [...text.matchAll(/\$\{CLAUDE_PLUGIN_ROOT\}\/([\w./-]+[\w-])/g)].map((m) => m[1].replace(/\/\*\*$/, ""));
+  assert.ok(refs.length >= 4);
+  for (const r of refs) assert.ok(fs.existsSync(path.join(plugin, r)), r);
+  assert.match(ps, /Bash\(node \$\{CLAUDE_PLUGIN_ROOT\}\/skills\/pane-collab\/bin\/collab\.mjs \*\)/);
+  assert.match(text, /`collab`은 `node \$\{CLAUDE_PLUGIN_ROOT\}\/skills\/pane-collab\/bin\/collab\.mjs`/, "the shown command matches the Bash rule letter for letter (the rule is not path-normalized)");
+  assert.match(ps, /Read\(\/\$\{CLAUDE_PLUGIN_ROOT\}\/skills\/pane-lead\/templates\/\*\*\)/, "Read rules need the plugin root, not CLAUDE_SKILL_DIR/..: the read path is normalized first");
+  assert.doesNotMatch(text, /\.claude\/skills\/|~\/\.claude|CLAUDE_SKILL_DIR\}\/\.\./);
+});
