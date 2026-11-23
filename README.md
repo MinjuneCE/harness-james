@@ -25,7 +25,7 @@ james가 쓰는 Claude Code 하네스를 묶은 플러그인 마켓플레이스�
 
 - **Node 18 이상이 PATH에 있어야 해요.** 훅과 스킬 스크립트가 모두 `node`로 돌아요.
   - 가드 훅 6개는 모두 `onFailure: block`이에요(아래 "훅이 하는 일"). node를 PATH에서 못 찾으면 **그 맥의 모든 세션에서** Bash 호출과 SendMessage가 막히고, verify-guard가 걸린 Read·Edit·Grep 등도 막혀요.
-- **Claude Code 2.1.295 이상**(`onFailure` 필요). 2.1.322에서 시험했어요. work-trace·context-band는 mod API를 써서 최신판이 필요해요.
+- **Claude Code 2.1.295 이상**(`onFailure` 필요). 2.1.322에서 시험했어요. work-trace·context-band는 mod API를 써서 최신판이 필요해요. work-trace 0.4.0부터는 **2.1.326 이상**이어야 떠요(`tool.judge`·`tool.run` 이벤트를 써요. 그보다 낮으면 모듈이 통째로 거부돼요).
 - git, gh(`pr-verify`의 `pr:N` 대상, 훅이 보는 명령).
 - **herdr**(pane-lead용). pane-lead는 herdr pane 안에서만 동작해요. herdr의 에이전트 상태 훅은 herdr가 관리하고 이 플러그인에는 없어요.
 - gitleaks(선택). skill-check 비밀값 검사에 써요. 없으면 정규식 검사로 대신해요. skill-check는 `python3`·`bash`가 있으면 대상의 .py·.sh 문법도 봐요.
@@ -181,6 +181,7 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 - **계보가 돌 때 업데이트하지 않기:** 위 "설치" 참고.
 - **짧은 이름이 모호할 때:** 플러그인 스킬은 `/harness-james:<스킬>`이 정식 이름이에요. 같은 이름의 사용자·프로젝트 스킬이 없으면 `/<스킬>`도 돼요. 같은 이름이 있으면 접두어를 붙여요. 에이전트는 항상 `harness-james:<에이전트>`로 불러야 해요(스킬 `agent:`에 짧은 이름을 쓰면 오류 없이 다른 에이전트로 떨어져요).
 - 플러그인 이름 `harness-james`는 코드(skill-check·pr-verify·verify-design의 에이전트 참조, `verdict.mjs`, `deep.mjs`)에 박혀 있어요. 이름을 바꾸면 그곳들도 같이 바꿔야 하고, 테스트가 어긋남을 잡아요.
+- **mod 훅이 건너뛰어지는 환경:** 다른 플러그인이 맨 바깥 단계에 앉아 `classic.*`와 `session.compact` 이벤트에서 사용자 mod의 훅을 건너뛰는 환경이 있어요. work-trace 0.4.0과 context-band 0.1.3은 도구 실행 시간·실패, 자동 판정과 거부, 확인 창 대기를 건너뛰어지지 않는 이벤트(`tool.judge`, `tool.run`, `tool.call`)에서 얻어요. `classic.StopFailure`와 `session.compact` 두 훅은 남아 있어서, 그런 환경에서는 API 오류로 멈출 때와 압축 때 "hook was skipped" 알림이 세션마다 한 번 뜨고, 그 정보는 추정으로 채워져요.
 
 ## 개발
 
