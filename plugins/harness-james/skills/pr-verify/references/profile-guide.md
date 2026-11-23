@@ -24,7 +24,7 @@
 
 ## 시작하기
 
-1. `${CLAUDE_SKILL_DIR}/examples/profile.example.json`을 `docs/evaluation/profiles/<이름>.json`으로 복사한다.
+1. `${CLAUDE_SKILL_DIR}/examples/profile.example.json`을 `docs/evaluation/profiles/<이름>.json`으로 복사한다. 레포를 읽어 초안부터 만들려면 `/harness-james:pr-verify-profile <레포 폴더>`를 쓴다.
 2. 아래 필드를 레포에 맞게 고친다.
 3. `/pr-verify <별칭>`을 실행한다. 1단계(`prepare.mjs`)가 프로파일 오류를 먼저 알려 준다.
 
@@ -34,7 +34,7 @@
 |---|---|
 | `repo.key` | 실행 ID·규칙 `repo`에 쓰는 짧은 키 |
 | `repo.name` | 리포트 폴더 이름(`reports/<name>/`) |
-| `repo.path` | 워크스페이스 기준 레포 경로 |
+| `repo.path` | 워크스페이스 기준 레포 경로. 워크스페이스 밖이면 `../…`로 적는다(절대 경로도 읽지만 다른 컴퓨터에서는 맞지 않는다) |
 | `repo.github` | `owner/repo`. `pr:N` 대상과 PR 게이트의 `-R` 판별에 쓴다 |
 | `repo.default_base` | base를 안 주면 쓰는 ref |
 | `repo.aliases` | `/pr-verify <별칭>`으로 부를 이름들 (첫 번째가 안내 메시지에 쓰인다) |

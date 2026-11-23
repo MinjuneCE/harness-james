@@ -115,7 +115,7 @@ function findProfile(token) {
   return profiles.find((p) => p.repo.aliases.map((a) => a.toLowerCase()).includes(t) || p.repo.key === t || p.repo.name === t) ?? null;
 }
 // --repo-path: 보정(calibration)용 로컬 클론 등 다른 위치의 같은 레포를 검증할 때 (기본은 workspace/<profile.repo.path>)
-const repoPathOf = (p) => (args["repo-path"] ? resolve(ws, args["repo-path"]) : join(ws, p.repo.path));
+const repoPathOf = (p) => (args["repo-path"] ? resolve(ws, args["repo-path"]) : resolve(ws, p.repo.path));
 
 function resolveRepoAndTarget(positional) {
   const [a, b] = positional;

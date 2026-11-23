@@ -8,7 +8,7 @@
     {
       "name": "harness-james",
       "source": "./plugins/harness-james",
-      "description": "pane-lead·pane-sub·pane-collab·project-sub·skill-check·pr-verify·verify-design 스킬과 에이전트, push·PR 흐름 훅, herdr pane 계정 프로필 훅, verify 에이전트 가드, 꺼 둔 역할에게 가는 SendMessage 막기 훅"
+      "description": "pane-lead·pane-sub·pane-collab·project-sub·skill-check·pr-verify·pr-verify-profile·verify-design 스킬과 에이전트, push·PR 흐름 훅, herdr pane 계정 프로필 훅, verify 에이전트 가드, 꺼 둔 역할에게 가는 SendMessage 막기 훅"
     },
     {
       "name": "work-trace",

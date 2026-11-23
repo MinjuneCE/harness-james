@@ -64,7 +64,7 @@ function collectReplicas(ws, runDir, profile, profiles, changedPaths, warnings) 
       const other = profiles.find((p) => p.repo.key === rp.repo);
       const rec = { source: dep.source, touched: touched.slice(0, 10), repo: rp.repo, ref: null, sha: null, path: rp.path, files: [], note: dep.note ?? null, missing: null };
       if (!other) { rec.missing = `프로파일 없음: ${rp.repo}`; warnings.push(`복제본 레포 ${rp.repo}의 프로파일이 없음 (dependents ${dep.source})`); out.push(rec); continue; }
-      const repoDir = join(ws, other.repo.path);
+      const repoDir = resolve(ws, other.repo.path);
       rec.ref = rp.ref ?? other.repo.default_base;
       rec.sha = existsSync(repoDir) ? resolveCommit(repoDir, rec.ref) ?? resolveCommit(repoDir, `origin/${rec.ref.replace(/^origin\//, "")}`) : null;
       if (!rec.sha) { rec.missing = `ref를 찾지 못함: ${rec.ref}`; warnings.push(`복제본 ${rp.repo}:${rp.path}의 ref ${rec.ref}를 찾지 못함`); out.push(rec); continue; }

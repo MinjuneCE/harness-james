@@ -10,6 +10,7 @@ james가 쓰는 Claude Code 하네스를 묶은 플러그인 마켓플레이스�
 | | 스킬 `pane-sub` | pane-lead 서브가 지키는 공통 규칙(범위와 금지, 결과 파일 형식, "메인에게" 칸, 보통·실행 종류, Fable 모델 층). spawn이 시작 프롬프트 `/harness-james:pane-sub`로 불러요. 0.8.0에서 더했어요. |
 | | 스킬 `skill-check` + 에이전트 `skill-check-judge` | 스킬 폴더 하나를 규칙 검사와 rubric 판정으로 채점해 S~F 등급과 고칠 점을 알려 줘요. |
 | | 스킬 `pr-verify` + 에이전트 `verify-{orchestrator,judge,refuter,explorer}` | 프로파일이 있는 레포의 브랜치·PR을 보안·성능·아키텍처·신뢰성·관측성·테스트·접근성 차원에서 채점해 BLOCK·REVIEW_REQUIRED·PASS를 판정해요(Opus 5.5 max). 0.6.0부터 이름이 `verify`에서 `pr-verify`로 바뀌었어요(아래 "pr-verify"). |
+| | 스킬 `pr-verify-profile` | pr-verify가 쓰는 레포 프로파일의 초안과 구조 목록 변경안을 만들어요. 레포를 읽기 전용 git으로 훑어 뼈대를 쓰고, 기계 점검을 한 뒤, 구조마다 몇 줄이 바뀌면 사람이 보는지 확인 표를 내요. 0.8.0에서 더했어요(아래 "pr-verify"). |
 | | 스킬 `verify-design` + 에이전트 `design-verify-{judge,refuter}` | 설계 문서 묶음을 rubric 59기준으로 검증해요. light(무료) · standard · deep(Workflow). |
 | | 스킬 `pane-collab` | 역할을 나눈 여러 메인 세션(기본 impl·qa·scenarios·infra·pm)이 SendMessage와 공용 게시판으로 일을 주고받는 규칙, 메시지 양식, 게시판 CLI(아래 "pane-collab"). 0.7.0에서 더했고, 0.8.0부터 게시판이 프로젝트별로 나뉘어요. |
 | | 스킬 `project-sub` | 지금 게시판 프로젝트가 아닌 프로젝트의 간단한 일을, 게시판을 전환하지 않고 그 프로젝트에 고정된 서브 하나에 맡겨요. 0.8.0에서 더했어요. |
@@ -85,6 +86,7 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 
 1. 프로젝트(워크스페이스) 루트에 `docs/evaluation/profiles/<이름>.json`을 둬요.
    - 틀: `skills/pr-verify/examples/profile.example.json`, 안내: `skills/pr-verify/references/profile-guide.md`
+   - 초안 만들기: `/harness-james:pr-verify-profile <레포 폴더>`. 초안은 `.verify/profile-drafts/`에만 쓰고, `profiles/`로 옮기는 등록은 확인 표를 본 뒤에 해요. 이미 등록된 프로파일을 주면 구조 목록 변경안을 내요. `repo.path`는 워크스페이스 기준 상대 경로로 적어요(밖이면 `../…`).
 2. `/harness-james:pr-verify <별칭> [브랜치|pr:N]`. 실행 한 번에 Opus 5.5 max 에이전트가 여러 개 떠서 비용이 커요.
    - `--full`은 갈림점(PR base 또는 `default_base`와 head의 merge-base)부터 전체를 봐요. 장기 브랜치(프로파일 `long_lived_branches`)를 PR로 올리기 전에 써요. `--merge-ref <머지 커밋>`을 더하면 머지 결과와도 비교해요.
    - 한도 등으로 멈추면 `--resume <run_id>`로 같은 실행을 이어 돌려요.
@@ -157,6 +159,7 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 (cd plugins/harness-james/skills/pane-lead && node --test test/*.test.mjs)
 (cd plugins/harness-james/skills/skill-check && SKILL_CHECK_RUNS_DIR="$(mktemp -d)" node --test test/)
 (cd plugins/harness-james/skills/pr-verify && node --test test/)
+(cd plugins/harness-james/skills/pr-verify-profile && node --test test/)
 (cd plugins/harness-james/skills/verify-design && node --test test/ && node scripts/check-workflow.mjs)
 (cd plugins/harness-james/skills/pane-collab && node --test test/)
 (cd plugins/harness-james/hooks && node --test test/)

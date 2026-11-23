@@ -202,3 +202,16 @@ test("예시 프로파일(examples/profile.example.json)이 그대로 로드된�
     assert.ok(ctx.signals.rule_findings.some((f) => f.id === "R-no-eval"));
   } finally { w2.cleanup(); }
 });
+
+test("repo.path가 절대 경로인 프로파일도 레포를 찾는다 (PR 게이트 훅과 같은 해석)", () => {
+  const w2 = makeWorkspace();
+  try {
+    const file = join(w2.ws, "docs/evaluation/profiles/demo.json");
+    const profile = JSON.parse(readFileSync(file, "utf8"));
+    profile.repo.path = w2.repo;
+    writeFileSync(file, JSON.stringify(profile, null, 2));
+    const r = run(w2.ws, "prepare.mjs", ["demo", "feat/x", "--no-fetch", "--season", "off"]);
+    assert.equal(r.code, 0, r.err + r.out);
+    assert.equal(ctxOf2(w2.ws, r.out).target.sha, gitIn(w2.repo, "rev-parse", "feat/x"));
+  } finally { w2.cleanup(); }
+});
