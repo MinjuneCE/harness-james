@@ -19,6 +19,11 @@
       "name": "context-band",
       "source": "./plugins/context-band",
       "description": "프롬프트 바로 위에 컨텍스트 창 사용량, 자동 압축까지 남은 양, 메모리 파일, 비용, 사용량 한도를 한 줄로 보여줍니다."
+    },
+    {
+      "name": "code-conventions",
+      "source": "./plugins/code-conventions",
+      "description": "프로젝트에 묶이지 않은 코드 컨벤션(공통·서버·화면 코드 규칙, 스택 문서 예시 둘)과, 그 요약을 설정 폴더의 rules/에 깔아 파일 종류마다 자동으로 읽히게 하는 설치 스킬"
     }
   ]
 }

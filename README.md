@@ -19,6 +19,7 @@ james가 쓰는 Claude Code 하네스를 묶은 플러그인 마켓플레이스�
 | | 훅 6개 | push·merge 확인, 보호 브랜치 직접 push 거부, PR 전 pr-verify 게이트, herdr pane 계정 프로필 확인, verify 에이전트 가드, 꺼 둔 pane-collab 역할에게 가는 SendMessage 거부(아래 "훅"). |
 | `work-trace` | mod | 세션 오른쪽 패널에 작업 진행, 막힌 곳, 모델이 무엇을 왜 골랐는지를 실시간으로 보여 줘요. |
 | `context-band` | mod | 프롬프트 바로 위에 컨텍스트 사용량, 자동 압축까지 남은 양, 메모리 파일, 비용, 사용량 한도를 한 줄로 보여 줘요. |
+| `code-conventions` | 문서 + 스킬 `install` | 프로젝트에 묶이지 않은 코드 컨벤션(공통 S·V·T·K·C·X, 서버 B, 화면 코드 F)과 요약을 설정 폴더에 깔아 파일 종류마다 자동으로 읽히게 해요. 스택 문서는 예시 둘(Java·Spring, UI 확장)만 있어요. |
 
 ## 준비
 
@@ -37,6 +38,7 @@ claude plugin marketplace add MinjuneCE/harness-james
 claude plugin install harness-james@harness-james
 claude plugin install work-trace@harness-james
 claude plugin install context-band@harness-james
+claude plugin install code-conventions@harness-james   # 쓸 때만. 설치 뒤 /code-conventions:install 실행
 ```
 
 - 이미 다른 마켓플레이스(예: 로컬 폴더 마켓플레이스)로 work-trace·context-band를 설치했다면 하나만 켜요.
@@ -137,6 +139,19 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 - 템플릿 출처: [github/spec-kit](https://github.com/github/spec-kit) `0443760542e7`의 `templates/`(2026-10-12에 받음), MIT License, Copyright GitHub, Inc. 전문은 `skills/spec-kit/templates/LICENSE`예요.
 - pane-collab의 결정 기록 양식(`templates/decision.md`)은 설계 결정의 기록 위치로 기능 폴더 `decisions.md`를 먼저 가리켜요.
 
+### code-conventions
+
+플러그인은 `CLAUDE.md`나 `rules/`를 컨텍스트로 싣지 못해요(공식 문서 plugins manifest-reference "Standard layout"). 그래서 설치 스킬이 문서와 요약을 설정 폴더에 복사하고, 그 뒤로는 Claude Code의 rules 기능이 파일 경로에 맞춰 요약을 읽어요. 플러그인을 켜기만 해서는 아무 일도 일어나지 않아요.
+
+1. 플러그인 설치 뒤 세션에서 `/code-conventions:install`을 한 번 실행해요.
+   - `<설정 폴더>/conventions/`에 전체 문서, `<설정 폴더>/rules/conventions-*.md`에 요약 3개(공통, 서버, 화면)가 생겨요. 설정 폴더는 `CLAUDE_CONFIG_DIR`, 없으면 `~/.claude`예요. 프로필마다 따로 실행해요.
+   - 요약은 다음 세션부터, 해당 종류의 파일을 읽거나 고칠 때 읽혀요(공통: 주요 언어 파일, 서버: `*.java`·`*.kt`·`*.go`·`*.py` 등 서버 언어 파일, 화면: `*.jsx`·`*.tsx`·`*.vue`·`*.svelte`·`*.liquid`).
+2. 플러그인을 업데이트한 뒤에는 `/code-conventions:install check`로 비교하고, 다르면 `/code-conventions:install`로 갱신해요. 깐 파일은 자동으로 따라오지 않아요.
+3. 같은 자리에 이 스크립트가 깔지 않은 파일이나 깐 뒤 손으로 고친 파일이 있으면 덮어쓰지 않고 멈춰요. 덮어쓰려면 `--force`.
+4. 걷어 낼 때는 `/code-conventions:install uninstall`. 이 스크립트가 깐 파일만 지워요.
+5. 프로젝트 몫(쓰는 층, 스택 문서, 폴더 이름, 예외)은 프로젝트 문서에 적어요. 목록은 `conventions/README.md` "프로젝트가 적는 것"이에요.
+6. 스택 문서는 규칙이 아니라 예시예요(`conventions/examples/`, Java·Spring 하나, UI 확장 하나). 자동으로 읽히지 않고, 프로젝트가 그 스택을 쓰면 예시 요약을 프로젝트의 `.claude/rules/`로 옮겨 켜요. 방법은 `conventions/examples/README.md`예요.
+
 ### 권한
 
 - pr-verify·verify-design은 `node <플러그인>/skills/<스킬>/scripts/*.mjs`를 Bash로 실행해요. 자주 쓰면 `Bash(node:*)` 허용을 고려해요.
@@ -183,6 +198,8 @@ node "$(ls -d ~/.claude/plugins/cache/*/harness-james/*/ | tail -1)skills/pane-l
 # mod
 claude plugin test plugins/work-trace
 claude plugin test plugins/context-band
+# code-conventions
+(cd plugins/code-conventions && node --test test/)
 # 매니페스트
 claude plugin validate . && for p in plugins/*; do claude plugin validate "$p"; done
 ```
