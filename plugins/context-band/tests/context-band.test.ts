@@ -128,6 +128,40 @@ test('the pieces read the snapshot', () => {
   ])
 })
 
+test('after /compact, and after a window found far smaller, the breakdown is read anew with no compaction event heard', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  const asked: string[] = []
+  let tokens = 150_000
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  on('command.run', () => ({}))
+  on('session.usage', ($, e) => {
+    asked.push(e?.breakdown === undefined ? 'plain' : 'breakdown')
+    const usage: SessionUsage = { startedAt: 0, context: { tokens, window: 200_000, percent: Math.round((tokens / 200_000) * 100) }, rateLimits: [] }
+
+    return { value: usage }
+  })
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  expect(asked, 'the start reads the breakdown').toEqual(['breakdown'])
+
+  // /compact, heard as its command.
+  await $.command.run({ command: 'compact', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 200 } })
+  await clock.settle()
+  expect(asked.slice(1), 'read anew once the command is done').toEqual(['breakdown'])
+
+  // An automatic compaction mid-turn: the next plain reading finds the window far smaller.
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await clock.advance(5000)
+  expect(asked.slice(2), 'a window that held: a plain reading').toEqual(['plain'])
+  tokens = 30_000
+  await clock.advance(5000)
+  expect(asked.slice(3), 'shrunk: the breakdown is read after it').toEqual(['plain', 'breakdown'])
+  await clock.advance(5000)
+  expect(asked.slice(5), 'and plain readings go on').toEqual(['plain'])
+})
+
 // ---- the model never waits on the band ----
 
 test('no hook waits on the band: a request streams through raising nothing, and an answered turn hands on before its reading lands', async ($, on) => {

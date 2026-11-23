@@ -22,14 +22,23 @@ function basename(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
 }
 
-/** Reads the status line's figures; with `withBreakdown`, the window by category too (estimated locally, no requests). */
-async function refresh($: EngineInterface, withBreakdown: boolean): Promise<void> {
+/** A window that shrank to under this share of its last reading was compacted in between. */
+const SHRUNK = 0.5
+
+/**
+ * Reads the status line's figures; with `withBreakdown`, the window by category too (estimated locally, no requests).
+ * True when a plain reading found the window far smaller than the one before: the breakdown kept is of a conversation that is gone.
+ */
+async function refresh($: EngineInterface, withBreakdown: boolean): Promise<boolean> {
   const [usage, model, now] = await Promise.all([
     withBreakdown ? $.session.usage({ breakdown: 'summary' }) : $.session.usage(),
     $.session.model(),
     $.clock.now(),
   ])
   const b = usage.context.breakdown
+  const tokens = usage.context.tokens
+  const hasShrunk = !withBreakdown && tokens !== undefined && lastTokens !== undefined && tokens < lastTokens * SHRUNK
+  if (tokens !== undefined) lastTokens = tokens
   await update($, snapshot, prev => {
     const next: BandSnapshot = {
       at: now,
@@ -60,6 +69,8 @@ async function refresh($: EngineInterface, withBreakdown: boolean): Promise<void
 
     return next
   })
+
+  return hasShrunk
 }
 
 async function quietly(work: () => Promise<unknown>): Promise<void> {
@@ -72,6 +83,8 @@ async function quietly(work: () => Promise<unknown>): Promise<void> {
 
 /** When the figures were last read; the module's own, so a reload reads them again soon. */
 let lastAt = 0
+/** The window's fill at the last reading, to tell a compaction by: no event of one is counted on. */
+let lastTokens: number | undefined
 /** The main loop's effort as its latest request named it: noted in the hook, drawn and saved off its path. */
 let effort: string | undefined
 /** A reading under way: a hook that asks for another while one runs folds into it. */
@@ -79,7 +92,8 @@ let reading: Promise<void> | undefined
 
 async function measure($: EngineInterface, withBreakdown: boolean): Promise<void> {
   await quietly(async () => {
-    await refresh($, withBreakdown)
+    // Compacted since the last reading: the breakdown is read anew, as after a compaction's own event.
+    if (await refresh($, withBreakdown)) await refresh($, true)
     lastAt = await $.clock.now()
   })
 }
@@ -145,11 +159,15 @@ export const register: Register = on => {
     return answered
   })
 
-  on('session.compact', async ($, e, next) => {
-    const compacted = await next(e)
-    if (e.agentId === undefined && e.trigger !== 'precompute') remeasure($, true)
+  // A compaction is not heard as its own event: a plugin seated
+  // above can hand `session.compact` past this one. `/compact` is heard as its
+  // command, and an automatic one shows at the next reading as a window far
+  // smaller than the last (`refresh`), which reads the breakdown anew.
+  on('command.run', { command: 'compact' }, async ($, e, next) => {
+    const ran = await next(e)
+    remeasure($, true)
 
-    return compacted
+    return ran
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
